@@ -8,6 +8,10 @@ export const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
 
+// Cast openai to any to access the videos API which isn't typed in the SDK yet
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const openaiAny = openai as any
+
 export async function startVideoGeneration(
   prompt: string,
   model: string,
@@ -17,7 +21,7 @@ export async function startVideoGeneration(
   // The OpenAI Videos API uses multipart/form-data
   // The SDK handles this via openai.videos.create
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const video = await (openai.videos as any).create({
+  const video = await openaiAny.videos.create({
     model,
     prompt,
     size,
@@ -37,7 +41,7 @@ export async function getVideoStatus(videoId: string): Promise<{
   error?: string
 }> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const video = await (openai.videos as any).retrieve(videoId)
+  const video = await openaiAny.videos.retrieve(videoId)
   return {
     id: video.id as string,
     status: video.status as string,
@@ -48,14 +52,14 @@ export async function getVideoStatus(videoId: string): Promise<{
 
 export async function downloadVideoContent(videoId: string): Promise<Buffer> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const content = await (openai.videos as any).downloadContent(videoId)
+  const content = await openaiAny.videos.downloadContent(videoId)
   const buffer = Buffer.from(await content.arrayBuffer())
   return buffer
 }
 
 export async function downloadThumbnail(videoId: string): Promise<Buffer> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const content = await (openai.videos as any).downloadContent(videoId, {
+  const content = await openaiAny.videos.downloadContent(videoId, {
     variant: 'thumbnail',
   })
   const buffer = Buffer.from(await content.arrayBuffer())
