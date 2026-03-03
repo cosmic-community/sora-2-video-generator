@@ -107,7 +107,11 @@ export async function startVideoGeneration(
       prompt,
       model: resolvedModel,
       size,
-      seconds: parseInt(seconds, 10),
+      // Changed: Send seconds as a string (e.g. "4", "8", "12"), NOT an integer.
+      // The Sora API expects one of the string values '4', '8', or '12'.
+      // Previously we used parseInt() which sent an integer and caused:
+      // "Invalid type for 'seconds': expected one of '4', '8', or '12', but got an integer instead."
+      seconds,
     }),
   })
 
