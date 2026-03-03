@@ -142,6 +142,8 @@ function mapSize(size: string): string {
 // Changed: Use POST /v1/images/generations with model "sora" for video generation.
 // This is the correct endpoint per the OpenAI API documentation.
 // The response_format should be "url" and we request n=1 outputs.
+// Changed: Removed n_seconds — it is NOT a valid parameter for /v1/images/generations.
+// The seconds param is kept in the function signature for Cosmic storage but not sent to OpenAI.
 export async function startVideoGeneration(
   prompt: string,
   model: string,
@@ -152,21 +154,16 @@ export async function startVideoGeneration(
   // regardless of whether the UI says "sora-2" or "sora-2-pro"
   const resolvedModel = model === 'sora-2-pro' ? 'sora' : 'sora'
 
-  const nSeconds = parseInt(seconds, 10)
-  if (isNaN(nSeconds)) {
-    throw new Error(`[Sora] Invalid seconds value: "${seconds}" — must be "4", "8", or "12"`)
-  }
-
   const mappedSize = mapSize(size)
 
+  // Changed: Only send parameters that the OpenAI API actually accepts.
+  // Removed n_seconds — causes "Unknown parameter" error.
+  // The API determines video duration automatically.
   const requestBody: Record<string, unknown> = {
     model: resolvedModel,
     prompt: prompt,
     n: 1,
     size: mappedSize,
-    // Changed: n_seconds controls video duration
-    n_seconds: nSeconds,
-    // Changed: Request URL format for easy download
     response_format: 'url',
   }
 
@@ -174,7 +171,7 @@ export async function startVideoGeneration(
     prompt: prompt.length > 80 ? prompt.slice(0, 80) + '...' : prompt,
     model: resolvedModel,
     size: mappedSize,
-    n_seconds: nSeconds,
+    seconds, // Changed: logged for reference but NOT sent to OpenAI
   }))
 
   // Changed: POST to /v1/images/generations — this is the unified endpoint for Sora
