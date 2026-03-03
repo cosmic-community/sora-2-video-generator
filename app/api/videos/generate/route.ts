@@ -18,12 +18,11 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Changed: Use correct defaults matching the Sora API model names
     const resolvedModel = model ?? 'sora-2'
     const resolvedSize = size ?? '1280x720'
-    const resolvedSeconds = seconds ?? '5'
+    // Changed: Default to '4' — the shortest valid Sora API duration
+    const resolvedSeconds = seconds ?? '4'
 
-    // Start the OpenAI Sora video generation job
     const openaiVideo = await startVideoGeneration(
       prompt.trim(),
       resolvedModel,
@@ -31,7 +30,6 @@ export async function POST(req: NextRequest) {
       resolvedSeconds
     )
 
-    // Persist to Cosmic
     const cosmicVideo = await createVideoRecord(
       prompt.trim(),
       openaiVideo.id,

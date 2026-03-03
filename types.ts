@@ -1,8 +1,8 @@
 export type VideoStatus = 'queued' | 'in_progress' | 'completed' | 'failed'
-// Changed: Correct model names per OpenAI Sora API docs
 export type VideoModel = 'sora-2' | 'sora-2-pro'
 export type VideoSize = '1280x720' | '1920x1080' | '480x480'
-export type VideoSeconds = '5' | '10' | '15' | '20'
+// Changed: Valid seconds values per OpenAI Sora API docs are '4', '8', and '12' only
+export type VideoSeconds = '4' | '8' | '12'
 
 export interface SoraVideoMetadata {
   openai_video_id: string

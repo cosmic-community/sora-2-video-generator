@@ -21,7 +21,6 @@ const EXAMPLE_PROMPTS = [
   'Aerial drone shot of a turquoise ocean bay with white sandy beaches, tropical birds in foreground.',
 ]
 
-// Changed: Use correct Sora model names per OpenAI docs (sora-2 and sora-2-pro)
 const MODEL_OPTIONS: { label: string; value: VideoModel }[] = [
   { label: 'sora-2 (fast)', value: 'sora-2' },
   { label: 'sora-2-pro (quality)', value: 'sora-2-pro' },
@@ -29,10 +28,10 @@ const MODEL_OPTIONS: { label: string; value: VideoModel }[] = [
 
 export default function GeneratorPanel() {
   const [prompt, setPrompt] = useState('')
-  // Changed: Default to 'sora-2' which is the correct API model name
   const [model, setModel] = useState<VideoModel>('sora-2')
   const [size, setSize] = useState<VideoSize>('1280x720')
-  const [seconds, setSeconds] = useState<VideoSeconds>('5')
+  // Changed: Default to '4' — the shortest valid Sora API duration
+  const [seconds, setSeconds] = useState<VideoSeconds>('4')
   const [phase, setPhase] = useState<Phase>('idle')
   const [job, setJob] = useState<JobState | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -74,7 +73,7 @@ export default function GeneratorPanel() {
         } catch {
           // keep polling on transient errors
         }
-      }, 10000) // Poll every 10 seconds per OpenAI docs recommendation
+      }, 10000)
 
       // Cleanup after 30 minutes max
       setTimeout(() => clearInterval(interval), 30 * 60 * 1000)
@@ -210,16 +209,16 @@ export default function GeneratorPanel() {
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Duration</label>
+            {/* Changed: Only valid Sora API values are 4, 8, and 12 seconds */}
             <select
               value={seconds}
               onChange={(e) => setSeconds(e.target.value as VideoSeconds)}
               disabled={isGenerating}
               className="input-field text-sm"
             >
-              <option value="5">5 seconds</option>
-              <option value="10">10 seconds</option>
-              <option value="15">15 seconds</option>
-              <option value="20">20 seconds</option>
+              <option value="4">4 seconds</option>
+              <option value="8">8 seconds</option>
+              <option value="12">12 seconds</option>
             </select>
           </div>
         </div>
