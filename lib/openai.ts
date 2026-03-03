@@ -15,6 +15,37 @@
 
 import OpenAI from 'openai'
 
+// Changed: Declare type interface for the OpenAI Videos API (preview feature not yet in SDK types)
+interface VideosCreateParams {
+  model: string
+  prompt: string
+  size: string
+  seconds: string
+}
+
+interface VideoObject {
+  id: string
+  object: string
+  status: string
+  progress: number
+  error?: { message?: string }
+}
+
+interface VideoContentResponse {
+  arrayBuffer(): Promise<ArrayBuffer>
+}
+
+interface VideosNamespace {
+  create(params: VideosCreateParams): Promise<VideoObject>
+  retrieve(videoId: string): Promise<VideoObject>
+  downloadContent(videoId: string, options?: { variant?: string }): Promise<VideoContentResponse>
+}
+
+// Changed: Helper to access the videos namespace which exists at runtime but not in SDK types
+function getVideosApi(client: OpenAI): VideosNamespace {
+  return (client as unknown as { videos: VideosNamespace }).videos
+}
+
 function getClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
@@ -77,37 +108,25 @@ export async function startVideoGeneration(
   })
 
   try {
-    // Changed: Use the SDK's videos.create() method
-    // Per the docs, this calls POST /v1/videos with:
-    //   model: "sora-2" or "sora-2-pro"
-    //   prompt: text description
-    //   size: "1280x720" etc.
-    //   seconds: "4", "8", or "12" (string)
-    const video = await client.videos.create({
+    // Changed: Use the typed videos API helper
+    const videos = getVideosApi(client)
+    const video = await videos.create({
       model: resolvedModel,
       prompt,
       size: mappedSize,
       seconds,
-    } as Parameters<typeof client.videos.create>[0])
-
-    // Changed: The response is a job object:
-    // { id: "video_...", object: "video", status: "queued", progress: 0, ... }
-    const videoObj = video as unknown as {
-      id: string
-      status: string
-      progress: number
-    }
+    })
 
     console.log('[Sora] Video generation started:', {
-      id: videoObj.id,
-      status: videoObj.status,
-      progress: videoObj.progress,
+      id: video.id,
+      status: video.status,
+      progress: video.progress,
     })
 
     return {
-      id: videoObj.id,
-      status: videoObj.status ?? 'queued',
-      progress: videoObj.progress ?? 0,
+      id: video.id,
+      status: video.status ?? 'queued',
+      progress: video.progress ?? 0,
     }
   } catch (error) {
     const msg = extractSdkError(error)
@@ -132,25 +151,20 @@ export async function getVideoStatus(videoId: string): Promise<{
   console.log(`[Sora] Polling status via openai.videos.retrieve(): ${videoId}`)
 
   try {
-    const video = await client.videos.retrieve(videoId)
+    // Changed: Use the typed videos API helper
+    const videos = getVideosApi(client)
+    const video = await videos.retrieve(videoId)
 
-    const videoObj = video as unknown as {
-      id: string
-      status: string
-      progress: number
-      error?: { message?: string }
-    }
-
-    const errorMsg = videoObj.error?.message ?? undefined
+    const errorMsg = video.error?.message ?? undefined
 
     console.log(
-      `[Sora] Status ${videoId}: ${videoObj.status}, progress=${videoObj.progress ?? 0}${errorMsg ? `, error=${errorMsg}` : ''}`
+      `[Sora] Status ${videoId}: ${video.status}, progress=${video.progress ?? 0}${errorMsg ? `, error=${errorMsg}` : ''}`
     )
 
     return {
-      id: videoObj.id,
-      status: videoObj.status,
-      progress: videoObj.progress ?? 0,
+      id: video.id,
+      status: video.status,
+      progress: video.progress ?? 0,
       error: errorMsg,
     }
   } catch (error) {
@@ -172,7 +186,9 @@ export async function downloadVideoContent(videoId: string): Promise<Buffer> {
   console.log(`[Sora] Downloading video via openai.videos.downloadContent(): ${videoId}`)
 
   try {
-    const content = await client.videos.downloadContent(videoId)
+    // Changed: Use the typed videos API helper
+    const videos = getVideosApi(client)
+    const content = await videos.downloadContent(videoId)
 
     // Changed: The SDK returns a Response-like object with arrayBuffer()
     const body = content.arrayBuffer()
@@ -198,10 +214,11 @@ export async function downloadThumbnail(videoId: string): Promise<Buffer> {
   console.log(`[Sora] Downloading thumbnail for: ${videoId}`)
 
   try {
-    // Changed: Pass variant parameter for thumbnail
-    const content = await client.videos.downloadContent(videoId, {
+    // Changed: Use the typed videos API helper with variant parameter
+    const videos = getVideosApi(client)
+    const content = await videos.downloadContent(videoId, {
       variant: 'thumbnail',
-    } as Parameters<typeof client.videos.downloadContent>[1])
+    })
 
     const body = content.arrayBuffer()
     const buffer = Buffer.from(await body)
