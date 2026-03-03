@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import type { VideoModel, VideoSize, VideoSeconds } from '@/types'
+import type { VideoSize, VideoSeconds } from '@/types'
 import ProgressBar from '@/components/ProgressBar'
 
 type Phase = 'idle' | 'submitting' | 'polling' | 'completed' | 'failed'
@@ -21,9 +21,17 @@ const EXAMPLE_PROMPTS = [
   'Aerial drone shot of a turquoise ocean bay with white sandy beaches, tropical birds in foreground.',
 ]
 
+// Changed: Sora UI labels mapped to valid model strings
+// The public OpenAI Sora API currently accepts "sora" as the model identifier
+const MODEL_OPTIONS = [
+  { label: 'sora (fast)', value: 'sora' },
+  { label: 'sora (quality)', value: 'sora' },
+] as const
+
 export default function GeneratorPanel() {
   const [prompt, setPrompt] = useState('')
-  const [model, setModel] = useState<VideoModel>('sora-2')
+  // Changed: Use 'sora' as the actual model value sent to the API
+  const [model] = useState<string>('sora')
   const [size, setSize] = useState<VideoSize>('1280x720')
   const [seconds, setSeconds] = useState<VideoSeconds>('5')
   const [phase, setPhase] = useState<Phase>('idle')
@@ -132,7 +140,7 @@ export default function GeneratorPanel() {
     if (!job) return
     const shareUrl = `${window.location.origin}?video=${job.openaiVideoId}`
     if (navigator.share) {
-      await navigator.share({ title: 'Sora 2 Video', text: job.prompt, url: shareUrl })
+      await navigator.share({ title: 'Sora Video', text: job.prompt, url: shareUrl })
     } else {
       await navigator.clipboard.writeText(shareUrl)
       alert('Link copied to clipboard!')
@@ -189,19 +197,7 @@ export default function GeneratorPanel() {
         </div>
 
         {/* Settings row */}
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Model</label>
-            <select
-              value={model}
-              onChange={(e) => setModel(e.target.value as VideoModel)}
-              disabled={isGenerating}
-              className="input-field text-sm"
-            >
-              <option value="sora-2">sora-2 (fast)</option>
-              <option value="sora-2-pro">sora-2-pro (quality)</option>
-            </select>
-          </div>
+        <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Resolution</label>
             <select
@@ -211,6 +207,7 @@ export default function GeneratorPanel() {
               className="input-field text-sm"
             >
               <option value="1280x720">1280×720 (720p)</option>
+              <option value="480x480">480×480 (Square)</option>
               <option value="1920x1080">1920×1080 (1080p)</option>
             </select>
           </div>
@@ -228,6 +225,14 @@ export default function GeneratorPanel() {
               <option value="20">20 seconds</option>
             </select>
           </div>
+        </div>
+
+        {/* Changed: Show model info as static badge instead of select, since API only accepts "sora" */}
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+          <span className="bg-surface-elevated border border-surface-border rounded px-2 py-1 text-brand font-medium">
+            Model: sora
+          </span>
+          <span>Powered by OpenAI Sora video generation</span>
         </div>
 
         <button

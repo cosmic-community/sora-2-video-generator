@@ -33,11 +33,28 @@ async function handleApiResponse<T>(response: Response, context: string): Promis
   return response.json() as Promise<T>
 }
 
-interface SoraVideoResponse {
+interface SoraGenerationResponse {
+  id: string
+  status: string
+  created_at?: number
+  data?: Array<{ url?: string }>
+  error?: { message?: string }
+}
+
+interface SoraStatusResponse {
   id: string
   status: string
   progress?: number
+  data?: Array<{ url?: string }>
   error?: { message?: string }
+}
+
+// Changed: Parse "1280x720" size string into separate width/height integers
+function parseSizeToWidthHeight(size: string): { width: number; height: number } {
+  const parts = size.split('x')
+  const width = parseInt(parts[0] ?? '1280', 10)
+  const height = parseInt(parts[1] ?? '720', 10)
+  return { width, height }
 }
 
 export async function startVideoGeneration(
@@ -46,25 +63,32 @@ export async function startVideoGeneration(
   size: string,
   seconds: string
 ): Promise<{ id: string; status: string; progress: number }> {
-  // Changed: Use direct fetch to the correct Sora API endpoint instead of openai.videos.create
+  const { width, height } = parseSizeToWidthHeight(size)
+  const n_seconds = parseInt(seconds, 10)
+
+  // Changed: Use correct Sora API request body shape with width/height/n_seconds
+  // The public Sora API model name is "sora" regardless of UI label
+  const body: Record<string, unknown> = {
+    model: 'sora',
+    prompt,
+    width,
+    height,
+    n_seconds,
+    n_variants: 1,
+  }
+
   const response = await fetch(`${OPENAI_API_BASE}/video/generations`, {
     method: 'POST',
     headers: getAuthHeaders(),
-    body: JSON.stringify({
-      model,
-      prompt,
-      size,
-      n: 1,
-      duration: parseInt(seconds, 10),
-    }),
+    body: JSON.stringify(body),
   })
 
-  const video = await handleApiResponse<SoraVideoResponse>(response, 'Video generation')
+  const video = await handleApiResponse<SoraGenerationResponse>(response, 'Video generation')
 
   return {
     id: video.id,
-    status: video.status,
-    progress: video.progress ?? 0,
+    status: video.status ?? 'queued',
+    progress: 0,
   }
 }
 
@@ -74,24 +98,31 @@ export async function getVideoStatus(videoId: string): Promise<{
   progress: number
   error?: string
 }> {
-  // Changed: Use direct fetch to the correct Sora status endpoint instead of openai.videos.retrieve
   const response = await fetch(`${OPENAI_API_BASE}/video/generations/${videoId}`, {
     method: 'GET',
     headers: getAuthHeaders(),
   })
 
-  const video = await handleApiResponse<SoraVideoResponse>(response, 'Video status')
+  const video = await handleApiResponse<SoraStatusResponse>(response, 'Video status')
+
+  // Changed: Derive progress from status since Sora API may not return a numeric progress field
+  let progress = video.progress ?? 0
+  if (video.status === 'completed') {
+    progress = 100
+  } else if (video.status === 'in_progress') {
+    progress = progress || 50
+  }
 
   return {
     id: video.id,
     status: video.status,
-    progress: video.progress ?? 0,
+    progress,
     error: video.error?.message,
   }
 }
 
 export async function downloadVideoContent(videoId: string): Promise<Buffer> {
-  // Changed: Use correct Sora content download endpoint instead of openai.videos.downloadContent
+  // Changed: Correct Sora content download endpoint
   const response = await fetch(
     `${OPENAI_API_BASE}/video/generations/${videoId}/content/video`,
     {
@@ -120,7 +151,6 @@ export async function downloadVideoContent(videoId: string): Promise<Buffer> {
 }
 
 export async function downloadThumbnail(videoId: string): Promise<Buffer> {
-  // Changed: Use correct Sora preview image endpoint instead of openai.videos.downloadContent with variant
   const response = await fetch(
     `${OPENAI_API_BASE}/video/generations/${videoId}/content/preview_image`,
     {
@@ -171,7 +201,7 @@ export async function remixVideo(
   const video = (await response.json()) as {
     id: string
     status: string
-    progress: number
+    progress?: number
   }
   return { id: video.id, status: video.status, progress: video.progress ?? 0 }
 }
