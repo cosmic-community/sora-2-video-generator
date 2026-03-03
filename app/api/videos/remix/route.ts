@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { remixVideo } from '@/lib/openai'
-import { createVideoRecord } from '@/lib/cosmic'
+import { createVideoRecord, updateVideoRecord } from '@/lib/cosmic'
 import type { RemixVideoRequest } from '@/types'
 
 export async function POST(req: NextRequest) {
@@ -8,7 +8,6 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as RemixVideoRequest
     const { prompt, openai_video_id } = body
 
-    // Changed: Log incoming remix request
     console.log('[Remix API] Received request:', {
       prompt: prompt ? prompt.slice(0, 60) + '...' : '(empty)',
       openai_video_id,
@@ -28,13 +27,23 @@ export async function POST(req: NextRequest) {
       remixedVideo.id,
       'sora-2',
       '1280x720',
-      '8' // Valid values are '4', '8', '12'
+      '8'
     )
 
     console.log('[Remix API] Created remix:', {
       cosmicId: cosmicVideo.id,
       openaiVideoId: remixedVideo.id,
+      hasVideoUrl: !!remixedVideo.videoUrl,
     })
+
+    // Changed: If remix completed synchronously, update Cosmic with the video URL
+    if (remixedVideo.videoUrl) {
+      await updateVideoRecord(cosmicVideo.id, {
+        status: 'completed',
+        progress: 100,
+        video_url: remixedVideo.videoUrl,
+      })
+    }
 
     return NextResponse.json({
       data: {
@@ -42,10 +51,10 @@ export async function POST(req: NextRequest) {
         openaiVideoId: remixedVideo.id,
         status: remixedVideo.status,
         progress: remixedVideo.progress,
+        videoUrl: remixedVideo.videoUrl,
       },
     })
   } catch (error) {
-    // Changed: Log full error for debugging
     const message = error instanceof Error ? error.message : 'Failed to remix video'
     const stack = error instanceof Error ? error.stack : undefined
     console.error('[Remix API] Error:', message)

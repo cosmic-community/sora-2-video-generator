@@ -12,7 +12,6 @@ interface JobState {
   status: string
   progress: number
   prompt: string
-  // Changed: Store the video URL when generation is complete for preview/download
   videoUrl?: string
 }
 
@@ -39,7 +38,6 @@ export default function GeneratorPanel() {
 
   const pollStatus = useCallback(
     (cosmicId: string, openaiVideoId: string) => {
-      // Changed: Poll every 10 seconds — video generation takes minutes
       const interval = setInterval(async () => {
         try {
           const res = await fetch(
@@ -50,7 +48,6 @@ export default function GeneratorPanel() {
               status: string
               progress: number
               error?: string
-              // Changed: Include videoUrl from the status API response
               videoUrl?: string
             }
             error?: string
@@ -116,35 +113,41 @@ export default function GeneratorPanel() {
           openaiVideoId: string
           status: string
           progress: number
+          // Changed: Include videoUrl from generate response for synchronous completion
+          videoUrl?: string
         }
         error?: string
       }
 
       if (json.error || !json.data) {
         setPhase('failed')
-        // Changed: Show the actual API error message from the server
         setError(json.error ?? 'Unknown error starting generation')
         return
       }
 
-      const { cosmicId, openaiVideoId, status, progress } = json.data
-      setJob({ cosmicId, openaiVideoId, status, progress, prompt: prompt.trim() })
-      setPhase('polling')
-      pollStatus(cosmicId, openaiVideoId)
+      const { cosmicId, openaiVideoId, status, progress, videoUrl } = json.data
+
+      // Changed: If video completed synchronously (has URL), skip polling
+      if (status === 'completed' && videoUrl) {
+        console.log('[GeneratorPanel] Video completed synchronously!')
+        setJob({ cosmicId, openaiVideoId, status, progress: 100, prompt: prompt.trim(), videoUrl })
+        setPhase('completed')
+      } else {
+        setJob({ cosmicId, openaiVideoId, status, progress, prompt: prompt.trim(), videoUrl })
+        setPhase('polling')
+        pollStatus(cosmicId, openaiVideoId)
+      }
     } catch (err) {
       setPhase('failed')
-      // Changed: Include actual network error details
       const networkMsg = err instanceof Error ? err.message : 'Unknown network error'
       setError(`Network error: ${networkMsg}`)
     }
   }
 
-  // Changed: Use videoUrl from job state for download, with fallback to API endpoint
   const handleDownload = () => {
     if (!job) return
     let url: string
     if (job.videoUrl) {
-      // Changed: Use the download API with the direct URL for proxy download
       url = `/api/videos/download?openaiVideoId=${job.openaiVideoId}&cosmicId=${job.cosmicId}&videoUrl=${encodeURIComponent(job.videoUrl)}`
     } else {
       url = `/api/videos/download?openaiVideoId=${job.openaiVideoId}&cosmicId=${job.cosmicId}`
@@ -327,7 +330,7 @@ export default function GeneratorPanel() {
             <ProgressBar progress={job.progress} status={job.status} />
           )}
 
-          {/* Changed: Show video preview when completed and videoUrl is available */}
+          {/* Show video preview when completed and videoUrl is available */}
           {phase === 'completed' && job.videoUrl && (
             <div className="rounded-lg overflow-hidden bg-black">
               <video
@@ -387,7 +390,7 @@ export default function GeneratorPanel() {
         </div>
       )}
 
-      {/* Changed: Enhanced error display with copy-paste support */}
+      {/* Enhanced error display with copy-paste support */}
       {error && (
         <div className="bg-red-950/40 border border-red-800/50 rounded-xl p-4 text-red-300 text-sm space-y-3">
           <div className="flex items-start gap-3">
