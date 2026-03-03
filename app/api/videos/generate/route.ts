@@ -18,6 +18,14 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Changed: Validate OPENAI_API_KEY is set before attempting generation
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json(
+        { error: 'OPENAI_API_KEY is not configured. Please add it to your environment variables.' },
+        { status: 500 }
+      )
+    }
+
     const resolvedModel = model ?? 'sora-2'
     const resolvedSize = size ?? '1280x720'
     // Changed: Default to '4' — the shortest valid Sora API duration

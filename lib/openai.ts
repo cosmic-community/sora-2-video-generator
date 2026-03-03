@@ -81,7 +81,7 @@ export async function startVideoGeneration(
   // Resolve model alias: 'sora' → 'sora-2'
   const resolvedModel = model === 'sora' ? 'sora-2' : model
 
-  console.log('[Sora] Creating video via REST API (multipart/form-data)', {
+  console.log('[Sora] Creating video via REST API (JSON body)', {
     prompt: prompt.slice(0, 60),
     model: resolvedModel,
     size,
@@ -90,14 +90,10 @@ export async function startVideoGeneration(
 
   const apiKey = getApiKey()
 
-  // Changed: Use multipart/form-data as per official docs curl example
-  // POST https://api.openai.com/v1/videos with -F fields
-  const formData = new FormData()
-  formData.append('prompt', prompt)
-  formData.append('model', resolvedModel)
-  formData.append('size', size)
-  formData.append('seconds', seconds)
-
+  // Changed: Use JSON body instead of multipart/form-data for reliable
+  // server-side fetch in Next.js. The OpenAI Videos API accepts both formats.
+  // multipart/form-data via Node.js FormData + fetch can produce malformed
+  // boundaries in some server runtimes, causing 400 / "Failed to start generation".
   const url = `${OPENAI_API_BASE}/videos`
   console.log(`[Sora] POST ${url}`)
 
@@ -105,10 +101,14 @@ export async function startVideoGeneration(
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
-      // Changed: Do NOT set Content-Type manually — fetch sets the correct
-      // multipart/form-data boundary automatically when body is FormData
+      'Content-Type': 'application/json',
     },
-    body: formData,
+    body: JSON.stringify({
+      prompt,
+      model: resolvedModel,
+      size,
+      seconds: parseInt(seconds, 10),
+    }),
   })
 
   if (!res.ok) {
