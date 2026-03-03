@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   try {
     const status = await getVideoStatus(openaiVideoId)
 
-    // Changed: Build updates object with proper typing for Cosmic metadata
+    // Changed: Persist status + video URL to Cosmic
     const updates: Record<string, string | number> = {
       status: status.status,
       progress: status.progress,
@@ -25,7 +25,6 @@ export async function GET(req: NextRequest) {
     if (status.error) {
       updates.error_message = status.error
     }
-    // Changed: Store the video URL in Cosmic when available
     if (status.videoUrl) {
       updates.video_url = status.videoUrl
     }
@@ -42,7 +41,8 @@ export async function GET(req: NextRequest) {
       },
     })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to get status'
+    const message =
+      error instanceof Error ? error.message : 'Failed to get status'
     const stack = error instanceof Error ? error.stack : undefined
     console.error('[Status API] Error:', message)
     if (stack) {

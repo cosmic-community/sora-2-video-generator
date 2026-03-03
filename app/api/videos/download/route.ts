@@ -7,11 +7,14 @@ export async function GET(req: NextRequest) {
   const openaiVideoId = searchParams.get('openaiVideoId')
   const cosmicId = searchParams.get('cosmicId')
   const variant = searchParams.get('variant') ?? 'video'
-  // Changed: Accept a direct videoUrl parameter to avoid re-fetching
+  // Changed: Accept a direct videoUrl parameter to avoid re-fetching status
   const directUrl = searchParams.get('videoUrl')
 
   if (!openaiVideoId && !directUrl) {
-    return NextResponse.json({ error: 'openaiVideoId or videoUrl is required' }, { status: 400 })
+    return NextResponse.json(
+      { error: 'openaiVideoId or videoUrl is required' },
+      { status: 400 }
+    )
   }
 
   try {
@@ -21,7 +24,10 @@ export async function GET(req: NextRequest) {
 
     if (variant === 'thumbnail') {
       if (!openaiVideoId) {
-        return NextResponse.json({ error: 'openaiVideoId is required for thumbnails' }, { status: 400 })
+        return NextResponse.json(
+          { error: 'openaiVideoId is required for thumbnails' },
+          { status: 400 }
+        )
       }
       buffer = await downloadThumbnail(openaiVideoId)
       contentType = 'image/webp'
@@ -31,7 +37,9 @@ export async function GET(req: NextRequest) {
       if (directUrl) {
         const res = await fetch(directUrl, { redirect: 'follow' })
         if (!res.ok) {
-          throw new Error(`Failed to download video from URL: ${res.status} ${res.statusText}`)
+          throw new Error(
+            `Failed to download video from URL: ${res.status} ${res.statusText}`
+          )
         }
         const arrayBuffer = await res.arrayBuffer()
         buffer = Buffer.from(arrayBuffer)
@@ -58,8 +66,8 @@ export async function GET(req: NextRequest) {
       },
     })
   } catch (error) {
-    // Changed: Log full error for debugging
-    const message = error instanceof Error ? error.message : 'Failed to download'
+    const message =
+      error instanceof Error ? error.message : 'Failed to download'
     const stack = error instanceof Error ? error.stack : undefined
     console.error('[Download API] Error:', message)
     if (stack) {

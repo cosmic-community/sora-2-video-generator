@@ -11,7 +11,8 @@ export default function VideoCard({ video, onRemix }: VideoCardProps) {
   const { metadata } = video
   const isComplete = metadata.status === 'completed'
   const isFailed = metadata.status === 'failed'
-  const isPending = metadata.status === 'queued' || metadata.status === 'in_progress'
+  const isPending =
+    metadata.status === 'queued' || metadata.status === 'in_progress'
 
   // Changed: Use video_url from Cosmic metadata if available for download
   const handleDownload = () => {
@@ -78,24 +79,47 @@ export default function VideoCard({ video, onRemix }: VideoCardProps) {
           />
         ) : isComplete ? (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-surface to-surface-elevated">
-            <svg viewBox="0 0 24 24" fill="none" className="w-12 h-12 text-brand opacity-60" stroke="currentColor" strokeWidth={1.5}>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              className="w-12 h-12 text-brand opacity-60"
+              stroke="currentColor"
+              strokeWidth={1.5}
+            >
               <rect x="2" y="4" width="20" height="16" rx="3" />
               <polygon points="10,9 16,12 10,15" fill="currentColor" />
             </svg>
           </div>
         ) : isPending ? (
           <div className="w-full h-full flex flex-col items-center justify-center gap-2">
-            <svg className="animate-spin w-8 h-8 text-brand/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <svg
+              className="animate-spin w-8 h-8 text-brand/50"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
               <circle cx="12" cy="12" r="10" strokeOpacity={0.2} />
-              <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
+              <path
+                d="M12 2a10 10 0 0 1 10 10"
+                strokeLinecap="round"
+              />
             </svg>
             <span className="text-xs text-gray-600">
-              {metadata.status === 'queued' ? 'Queued' : `${metadata.progress ?? 0}%`}
+              {metadata.status === 'queued'
+                ? 'Queued'
+                : `${metadata.progress ?? 0}%`}
             </span>
           </div>
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <svg viewBox="0 0 24 24" fill="none" className="w-10 h-10 text-red-500/40" stroke="currentColor" strokeWidth={1.5}>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              className="w-10 h-10 text-red-500/40"
+              stroke="currentColor"
+              strokeWidth={1.5}
+            >
               <circle cx="12" cy="12" r="10" />
               <line x1="15" y1="9" x2="9" y2="15" />
               <line x1="9" y1="9" x2="15" y2="15" />
@@ -143,7 +167,13 @@ export default function VideoCard({ video, onRemix }: VideoCardProps) {
               onClick={handleDownload}
               className="btn-primary text-xs flex-1 flex items-center justify-center gap-1.5 py-2"
             >
-              <svg viewBox="0 0 24 24" fill="none" className="w-3.5 h-3.5" stroke="currentColor" strokeWidth={2}>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                className="w-3.5 h-3.5"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                 <polyline points="7 10 12 15 17 10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
@@ -154,12 +184,28 @@ export default function VideoCard({ video, onRemix }: VideoCardProps) {
               onClick={handleShare}
               className="btn-secondary text-xs px-3 py-2 flex items-center gap-1.5"
             >
-              <svg viewBox="0 0 24 24" fill="none" className="w-3.5 h-3.5" stroke="currentColor" strokeWidth={2}>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                className="w-3.5 h-3.5"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
                 <circle cx="18" cy="5" r="3" />
                 <circle cx="6" cy="12" r="3" />
                 <circle cx="18" cy="19" r="3" />
-                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                <line
+                  x1="8.59"
+                  y1="13.51"
+                  x2="15.42"
+                  y2="17.49"
+                />
+                <line
+                  x1="15.41"
+                  y1="6.51"
+                  x2="8.59"
+                  y2="10.49"
+                />
               </svg>
               Share
             </button>
@@ -168,7 +214,13 @@ export default function VideoCard({ video, onRemix }: VideoCardProps) {
               className="btn-secondary text-xs px-3 py-2 flex items-center gap-1.5"
               title="Remix this video"
             >
-              <svg viewBox="0 0 24 24" fill="none" className="w-3.5 h-3.5" stroke="currentColor" strokeWidth={2}>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                className="w-3.5 h-3.5"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
                 <polyline points="17 1 21 5 17 9" />
                 <path d="M3 11V9a4 4 0 0 1 4-4h14" />
                 <polyline points="7 23 3 19 7 15" />
@@ -186,11 +238,17 @@ export default function VideoCard({ video, onRemix }: VideoCardProps) {
 function StatusPill({ status }: { status: string }) {
   const config: Record<string, { label: string; cls: string }> = {
     queued: { label: 'Queued', cls: 'bg-yellow-900/80 text-yellow-300' },
-    in_progress: { label: 'Rendering', cls: 'bg-blue-900/80 text-blue-300' },
+    in_progress: {
+      label: 'Rendering',
+      cls: 'bg-blue-900/80 text-blue-300',
+    },
     completed: { label: 'Ready', cls: 'bg-green-900/80 text-green-300' },
     failed: { label: 'Failed', cls: 'bg-red-900/80 text-red-300' },
   }
-  const c = config[status] ?? { label: status, cls: 'bg-gray-800 text-gray-400' }
+  const c = config[status] ?? {
+    label: status,
+    cls: 'bg-gray-800 text-gray-400',
+  }
   return (
     <span className={`text-xs px-2 py-0.5 rounded-full ${c.cls} font-medium`}>
       {c.label}

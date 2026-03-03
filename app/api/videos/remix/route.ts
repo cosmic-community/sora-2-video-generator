@@ -14,10 +14,16 @@ export async function POST(req: NextRequest) {
     })
 
     if (!prompt?.trim()) {
-      return NextResponse.json({ error: 'Remix prompt is required' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'Remix prompt is required' },
+        { status: 400 }
+      )
     }
     if (!openai_video_id) {
-      return NextResponse.json({ error: 'openai_video_id is required' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'openai_video_id is required' },
+        { status: 400 }
+      )
     }
 
     const remixedVideo = await remixVideo(openai_video_id, prompt.trim())
@@ -55,7 +61,8 @@ export async function POST(req: NextRequest) {
       },
     })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to remix video'
+    const message =
+      error instanceof Error ? error.message : 'Failed to remix video'
     const stack = error instanceof Error ? error.stack : undefined
     console.error('[Remix API] Error:', message)
     if (stack) {

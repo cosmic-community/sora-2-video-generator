@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as GenerateVideoRequest
     const { prompt, model, size, seconds } = body
 
-    console.log('[Generate API] Received request:', {
+    console.log('[Generate] Request:', {
       prompt: prompt ? prompt.slice(0, 60) + '...' : '(empty)',
       model,
       size,
@@ -20,7 +20,10 @@ export async function POST(req: NextRequest) {
     })
 
     if (!prompt?.trim()) {
-      return NextResponse.json({ error: 'Prompt is required' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'Prompt is required' },
+        { status: 400 }
+      )
     }
     if (prompt.trim().length > 2000) {
       return NextResponse.json(
@@ -28,11 +31,12 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       )
     }
-
     if (!process.env.OPENAI_API_KEY) {
-      console.error('[Generate API] OPENAI_API_KEY is missing from environment variables')
       return NextResponse.json(
-        { error: 'OPENAI_API_KEY is not configured. Please add it to your environment variables at https://platform.openai.com/api-keys' },
+        {
+          error:
+            'OPENAI_API_KEY is not configured. Add it to your environment variables.',
+        },
         { status: 500 }
       )
     }
@@ -42,30 +46,31 @@ export async function POST(req: NextRequest) {
     const resolvedSeconds = seconds ?? '4'
 
     if (!VALID_SECONDS.includes(resolvedSeconds)) {
-      const msg = `Invalid seconds value "${resolvedSeconds}". Must be one of: ${VALID_SECONDS.join(', ')}`
-      console.error(`[Generate API] ${msg}`)
-      return NextResponse.json({ error: msg }, { status: 400 })
+      return NextResponse.json(
+        {
+          error: `Invalid seconds "${resolvedSeconds}". Use: ${VALID_SECONDS.join(', ')}`,
+        },
+        { status: 400 }
+      )
     }
-
     if (!VALID_MODELS.includes(resolvedModel)) {
-      const msg = `Invalid model "${resolvedModel}". Must be one of: ${VALID_MODELS.join(', ')}`
-      console.error(`[Generate API] ${msg}`)
-      return NextResponse.json({ error: msg }, { status: 400 })
+      return NextResponse.json(
+        {
+          error: `Invalid model "${resolvedModel}". Use: ${VALID_MODELS.join(', ')}`,
+        },
+        { status: 400 }
+      )
     }
-
     if (!VALID_SIZES.includes(resolvedSize)) {
-      const msg = `Invalid size "${resolvedSize}". Must be one of: ${VALID_SIZES.join(', ')}`
-      console.error(`[Generate API] ${msg}`)
-      return NextResponse.json({ error: msg }, { status: 400 })
+      return NextResponse.json(
+        {
+          error: `Invalid size "${resolvedSize}". Use: ${VALID_SIZES.join(', ')}`,
+        },
+        { status: 400 }
+      )
     }
 
-    console.log('[Generate API] Starting video generation:', {
-      prompt: prompt.trim().slice(0, 60),
-      model: resolvedModel,
-      size: resolvedSize,
-      seconds: resolvedSeconds,
-    })
-
+    // Changed: Call OpenAI — only model, prompt, size are sent to the API
     const openaiVideo = await startVideoGeneration(
       prompt.trim(),
       resolvedModel,
@@ -73,12 +78,7 @@ export async function POST(req: NextRequest) {
       resolvedSeconds
     )
 
-    console.log('[Generate API] OpenAI video created, saving to Cosmic:', {
-      openaiVideoId: openaiVideo.id,
-      status: openaiVideo.status,
-      hasVideoUrl: !!openaiVideo.videoUrl,
-    })
-
+    // Changed: Save to Cosmic CMS
     const cosmicVideo = await createVideoRecord(
       prompt.trim(),
       openaiVideo.id,
@@ -87,12 +87,15 @@ export async function POST(req: NextRequest) {
       resolvedSeconds
     )
 
-    console.log('[Generate API] Cosmic record created:', { cosmicId: cosmicVideo.id })
+    console.log(
+      '[Generate] Cosmic record:',
+      cosmicVideo.id,
+      'OpenAI:',
+      openaiVideo.id
+    )
 
-    // Changed: If the video completed synchronously (got URL back immediately),
-    // update the Cosmic record with the video URL and completed status
+    // Changed: If completed synchronously, persist URL to Cosmic immediately
     if (openaiVideo.videoUrl) {
-      console.log('[Generate API] Video completed synchronously, updating Cosmic with URL')
       await updateVideoRecord(cosmicVideo.id, {
         status: 'completed',
         progress: 100,
@@ -106,17 +109,15 @@ export async function POST(req: NextRequest) {
         openaiVideoId: openaiVideo.id,
         status: openaiVideo.status,
         progress: openaiVideo.progress,
-        // Changed: Include videoUrl in response if immediately available
         videoUrl: openaiVideo.videoUrl,
       },
     })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to start generation'
-    const stack = error instanceof Error ? error.stack : undefined
-    console.error('[Generate API] Error:', message)
-    if (stack) {
-      console.error('[Generate API] Stack:', stack)
-    }
+    const message =
+      error instanceof Error ? error.message : 'Failed to start generation'
+    console.error('[Generate] Error:', message)
+    if (error instanceof Error && error.stack)
+      console.error('[Generate] Stack:', error.stack)
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

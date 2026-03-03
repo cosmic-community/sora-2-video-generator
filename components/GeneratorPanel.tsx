@@ -38,6 +38,7 @@ export default function GeneratorPanel() {
 
   const pollStatus = useCallback(
     (cosmicId: string, openaiVideoId: string) => {
+      // Changed: Poll every 10 seconds — video generation takes minutes
       const interval = setInterval(async () => {
         try {
           const res = await fetch(
@@ -113,7 +114,6 @@ export default function GeneratorPanel() {
           openaiVideoId: string
           status: string
           progress: number
-          // Changed: Include videoUrl from generate response for synchronous completion
           videoUrl?: string
         }
         error?: string
@@ -130,20 +130,36 @@ export default function GeneratorPanel() {
       // Changed: If video completed synchronously (has URL), skip polling
       if (status === 'completed' && videoUrl) {
         console.log('[GeneratorPanel] Video completed synchronously!')
-        setJob({ cosmicId, openaiVideoId, status, progress: 100, prompt: prompt.trim(), videoUrl })
+        setJob({
+          cosmicId,
+          openaiVideoId,
+          status,
+          progress: 100,
+          prompt: prompt.trim(),
+          videoUrl,
+        })
         setPhase('completed')
       } else {
-        setJob({ cosmicId, openaiVideoId, status, progress, prompt: prompt.trim(), videoUrl })
+        setJob({
+          cosmicId,
+          openaiVideoId,
+          status,
+          progress,
+          prompt: prompt.trim(),
+          videoUrl,
+        })
         setPhase('polling')
         pollStatus(cosmicId, openaiVideoId)
       }
     } catch (err) {
       setPhase('failed')
-      const networkMsg = err instanceof Error ? err.message : 'Unknown network error'
+      const networkMsg =
+        err instanceof Error ? err.message : 'Unknown network error'
       setError(`Network error: ${networkMsg}`)
     }
   }
 
+  // Changed: Use videoUrl from job state for download, with fallback to API endpoint
   const handleDownload = () => {
     if (!job) return
     let url: string
@@ -164,7 +180,11 @@ export default function GeneratorPanel() {
     if (!job) return
     const shareUrl = `${window.location.origin}?video=${job.openaiVideoId}`
     if (navigator.share) {
-      await navigator.share({ title: 'Sora Video', text: job.prompt, url: shareUrl })
+      await navigator.share({
+        title: 'Sora Video',
+        text: job.prompt,
+        url: shareUrl,
+      })
     } else {
       await navigator.clipboard.writeText(shareUrl)
       alert('Link copied to clipboard!')
@@ -183,7 +203,9 @@ export default function GeneratorPanel() {
   return (
     <div className="card space-y-6">
       <div>
-        <h2 className="text-white font-semibold text-xl mb-1">Generate a Video</h2>
+        <h2 className="text-white font-semibold text-xl mb-1">
+          Generate a Video
+        </h2>
         <p className="text-gray-500 text-sm">
           Describe your scene in detail — subject, camera, lighting, motion.
         </p>
@@ -191,7 +213,9 @@ export default function GeneratorPanel() {
 
       {/* Example prompts */}
       <div>
-        <p className="text-gray-500 text-xs mb-2 uppercase tracking-wide">Example prompts</p>
+        <p className="text-gray-500 text-xs mb-2 uppercase tracking-wide">
+          Example prompts
+        </p>
         <div className="flex flex-wrap gap-2">
           {EXAMPLE_PROMPTS.map((p, i) => (
             <button
@@ -223,7 +247,9 @@ export default function GeneratorPanel() {
         {/* Settings grid */}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">Resolution</label>
+            <label className="text-xs text-gray-500 mb-1 block">
+              Resolution
+            </label>
             <select
               value={size}
               onChange={(e) => setSize(e.target.value as VideoSize)}
@@ -236,7 +262,9 @@ export default function GeneratorPanel() {
             </select>
           </div>
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">Duration</label>
+            <label className="text-xs text-gray-500 mb-1 block">
+              Duration
+            </label>
             <select
               value={seconds}
               onChange={(e) => setSeconds(e.target.value as VideoSeconds)}
@@ -292,9 +320,14 @@ export default function GeneratorPanel() {
                 strokeWidth={2}
               >
                 <circle cx="12" cy="12" r="10" strokeOpacity={0.25} />
-                <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
+                <path
+                  d="M12 2a10 10 0 0 1 10 10"
+                  strokeLinecap="round"
+                />
               </svg>
-              {phase === 'submitting' ? 'Submitting…' : 'Generating… (this may take a few minutes)'}
+              {phase === 'submitting'
+                ? 'Submitting…'
+                : 'Generating… (this may take a few minutes)'}
             </>
           ) : (
             <>
@@ -319,9 +352,13 @@ export default function GeneratorPanel() {
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
               <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">
-                {phase === 'completed' ? '✅ Generation complete' : '⏳ Rendering… (polls every 10s)'}
+                {phase === 'completed'
+                  ? '✅ Generation complete'
+                  : '⏳ Rendering… (polls every 10s)'}
               </p>
-              <p className="text-gray-300 text-sm line-clamp-2">{job.prompt}</p>
+              <p className="text-gray-300 text-sm line-clamp-2">
+                {job.prompt}
+              </p>
             </div>
             <StatusBadge status={job.status} />
           </div>
@@ -377,8 +414,18 @@ export default function GeneratorPanel() {
                   <circle cx="18" cy="5" r="3" />
                   <circle cx="6" cy="12" r="3" />
                   <circle cx="18" cy="19" r="3" />
-                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+                  <line
+                    x1="8.59"
+                    y1="13.51"
+                    x2="15.42"
+                    y2="17.49"
+                  />
+                  <line
+                    x1="15.41"
+                    y1="6.51"
+                    x2="8.59"
+                    y2="10.49"
+                  />
                 </svg>
                 Share
               </button>
@@ -406,7 +453,9 @@ export default function GeneratorPanel() {
               <line x1="9" y1="9" x2="15" y2="15" />
             </svg>
             <div className="flex-1 min-w-0">
-              <p className="font-medium text-red-300 mb-1">Generation failed</p>
+              <p className="font-medium text-red-300 mb-1">
+                Generation failed
+              </p>
               <pre className="text-red-400 text-xs whitespace-pre-wrap break-all bg-red-950/50 rounded-lg p-3 border border-red-900/50 font-mono select-all">
                 {error}
               </pre>
@@ -435,8 +484,8 @@ export default function GeneratorPanel() {
 
       {/* Content restrictions note */}
       <p className="text-gray-600 text-xs">
-        ⚠️ Content must be suitable for audiences under 18. No copyrighted characters, real
-        people, or music.
+        ⚠️ Content must be suitable for audiences under 18. No copyrighted
+        characters, real people, or music.
       </p>
     </div>
   )
