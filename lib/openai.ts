@@ -1,41 +1,15 @@
-// Uses the official OpenAI Node.js SDK (openai npm package) for all Sora Videos API calls.
-// The SDK handles multipart/form-data encoding, correct endpoints, and auth automatically.
+// Uses the official OpenAI Node.js SDK (openai v5+) for all Sora Videos API calls.
+// The v5 SDK ships with native openai.videos support — no type-casting needed.
 // Official docs: https://developers.openai.com/api/docs/guides/video-generation
 
 import OpenAI from 'openai'
 
-// Changed: Define a typed interface for the videos API surface so we get
-// type safety while working around the missing property in the SDK's .d.ts files.
-interface SoraVideoResult {
-  id: string
-  status: string
-  progress?: number | null
-  error?: { message?: string } | null
-}
-
-interface SoraVideoContent {
-  arrayBuffer(): Promise<ArrayBuffer>
-}
-
-interface SoraVideosAPI {
-  create(params: Record<string, unknown>): Promise<SoraVideoResult>
-  retrieve(videoId: string): Promise<SoraVideoResult>
-  downloadContent(videoId: string, options?: Record<string, unknown>): Promise<SoraVideoContent>
-  remix(videoId: string, params: Record<string, unknown>): Promise<SoraVideoResult>
-}
-
-interface OpenAIWithVideos extends OpenAI {
-  videos: SoraVideosAPI
-}
-
-function getClient(): OpenAIWithVideos {
+function getClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY environment variable is not set')
   }
-  // Changed: Cast to OpenAIWithVideos so TypeScript recognises the videos property
-  // which exists at runtime in openai@4.98.0 but is not yet reflected in its .d.ts files.
-  return new OpenAI({ apiKey }) as OpenAIWithVideos
+  return new OpenAI({ apiKey })
 }
 
 export async function startVideoGeneration(
@@ -56,8 +30,8 @@ export async function startVideoGeneration(
     seconds,
   })
 
-  // Changed: Use official SDK openai.videos.create() instead of raw fetch.
-  // The SDK sends POST /v1/videos with correct multipart/form-data encoding automatically.
+  // Changed: Use official SDK openai.videos.create() — POST /v1/videos
+  // In openai v5+ the .videos property and its types are built-in.
   const video = await openai.videos.create({
     prompt,
     model: resolvedModel,
@@ -82,7 +56,7 @@ export async function getVideoStatus(videoId: string): Promise<{
 }> {
   const openai = getClient()
 
-  // Changed: Use official SDK openai.videos.retrieve() — sends GET /v1/videos/{video_id}
+  // Changed: Use official SDK openai.videos.retrieve() — GET /v1/videos/{video_id}
   const video = await openai.videos.retrieve(videoId)
 
   // Derive progress from status if not provided numerically
@@ -93,11 +67,15 @@ export async function getVideoStatus(videoId: string): Promise<{
     progress = 50
   }
 
+  // Changed: Safely extract error message from response
+  const errorObj = video.error as { message?: string } | null | undefined
+  const errorMessage = errorObj?.message ?? undefined
+
   return {
     id: video.id,
     status: video.status,
     progress,
-    error: video.error?.message ?? undefined,
+    error: errorMessage,
   }
 }
 
@@ -130,13 +108,12 @@ export async function remixVideo(
 ): Promise<{ id: string; status: string; progress: number }> {
   const openai = getClient()
 
-  // Changed: Use official SDK for remix — POST /v1/videos/{video_id}/remix with JSON body
-  // The SDK handles Content-Type: application/json automatically
+  // Changed: Use official SDK for remix — POST /v1/videos/{video_id}/remix
   const video = await openai.videos.remix(videoId, { prompt })
 
   return {
     id: video.id,
     status: video.status ?? 'queued',
-    progress: video.progress ?? 0,
+    progress: (video.progress as number) ?? 0,
   }
 }
