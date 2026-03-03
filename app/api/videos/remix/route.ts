@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
       remixedVideo.id,
       'sora-2',
       '1280x720',
-      '5'
+      '8' // Changed: '5' is invalid — valid values are '4', '8', '12'
     )
 
     return NextResponse.json({

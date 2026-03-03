@@ -28,6 +28,26 @@ interface SoraVideoResponse {
   error?: { message?: string }
 }
 
+// Changed: Extract a detailed error message from OpenAI API error responses,
+// including billing errors like "Billing hard limit has been reached"
+async function extractErrorMessage(response: Response, context: string): Promise<string> {
+  let errorMessage = `${context} failed with status ${response.status}`
+  try {
+    const rawText = await response.text()
+    console.error(`[Sora] ${context} error (${response.status}):`, rawText)
+    const err = JSON.parse(rawText) as {
+      error?: { message?: string; code?: string; type?: string }
+    }
+    if (err?.error?.message) {
+      // Surface the exact OpenAI error message (e.g. "Billing hard limit has been reached")
+      errorMessage = err.error.message
+    }
+  } catch {
+    // ignore JSON parse errors — keep default message
+  }
+  return errorMessage
+}
+
 export async function startVideoGeneration(
   prompt: string,
   model: string,
@@ -36,12 +56,10 @@ export async function startVideoGeneration(
 ): Promise<{ id: string; status: string; progress: number }> {
   const apiKey = getApiKey()
 
-  // Changed: Use multipart/form-data as required by the Sora Videos API
+  // Use multipart/form-data as required by the Sora Videos API
   // Endpoint: POST /v1/videos
-  // Parameters: prompt, model, size (e.g. "1280x720"), seconds (e.g. "5")
   const formData = new FormData()
   formData.append('prompt', prompt)
-  // Changed: Use sora-2 as the correct model name (not "sora")
   formData.append('model', model === 'sora' ? 'sora-2' : model)
   formData.append('size', size)
   formData.append('seconds', seconds)
@@ -52,27 +70,18 @@ export async function startVideoGeneration(
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
-      // Do NOT set Content-Type for multipart/form-data — browser sets it with boundary
+      // Do NOT set Content-Type for multipart/form-data — fetch sets it with boundary automatically
     },
     body: formData,
   })
 
-  const rawText = await response.text()
-  console.log(`[Sora] POST /v1/videos → ${response.status}:`, rawText)
-
   if (!response.ok) {
-    let errorMessage = `Video generation failed with status ${response.status}`
-    try {
-      const err = JSON.parse(rawText) as { error?: { message?: string; code?: string } }
-      if (err?.error?.message) {
-        errorMessage = err.error.message
-      }
-    } catch {
-      errorMessage = `Video generation failed (${response.status}): ${rawText}`
-    }
+    // Changed: Use extractErrorMessage to surface billing errors and other OpenAI errors clearly
+    const errorMessage = await extractErrorMessage(response, 'Video generation')
     throw new Error(errorMessage)
   }
 
+  const rawText = await response.text()
   const video = JSON.parse(rawText) as SoraVideoResponse
   return {
     id: video.id,
@@ -89,7 +98,6 @@ export async function getVideoStatus(videoId: string): Promise<{
 }> {
   const apiKey = getApiKey()
 
-  // Changed: Correct endpoint GET /v1/videos/{video_id}
   const response = await fetch(`${OPENAI_API_BASE}/videos/${videoId}`, {
     method: 'GET',
     headers: {
@@ -98,20 +106,12 @@ export async function getVideoStatus(videoId: string): Promise<{
     },
   })
 
-  const rawText = await response.text()
-  console.log(`[Sora] GET /v1/videos/${videoId} → ${response.status}:`, rawText)
-
   if (!response.ok) {
-    let errorMessage = `Video status failed with status ${response.status}`
-    try {
-      const err = JSON.parse(rawText) as { error?: { message?: string } }
-      if (err?.error?.message) errorMessage = err.error.message
-    } catch {
-      // ignore
-    }
+    const errorMessage = await extractErrorMessage(response, 'Video status')
     throw new Error(errorMessage)
   }
 
+  const rawText = await response.text()
   const video = JSON.parse(rawText) as SoraVideoResponse
 
   // Derive progress from status if not provided numerically
@@ -133,7 +133,6 @@ export async function getVideoStatus(videoId: string): Promise<{
 export async function downloadVideoContent(videoId: string): Promise<Buffer> {
   const apiKey = getApiKey()
 
-  // Changed: Correct endpoint GET /v1/videos/{video_id}/content (default variant=video)
   const response = await fetch(`${OPENAI_API_BASE}/videos/${videoId}/content`, {
     method: 'GET',
     headers: {
@@ -142,15 +141,7 @@ export async function downloadVideoContent(videoId: string): Promise<Buffer> {
   })
 
   if (!response.ok) {
-    const rawText = await response.text()
-    console.error(`[Sora] Video download failed ${response.status}:`, rawText)
-    let errorMessage = `Video download failed with status ${response.status}`
-    try {
-      const err = JSON.parse(rawText) as { error?: { message?: string } }
-      if (err?.error?.message) errorMessage = err.error.message
-    } catch {
-      // ignore
-    }
+    const errorMessage = await extractErrorMessage(response, 'Video download')
     throw new Error(errorMessage)
   }
 
@@ -161,7 +152,6 @@ export async function downloadVideoContent(videoId: string): Promise<Buffer> {
 export async function downloadThumbnail(videoId: string): Promise<Buffer> {
   const apiKey = getApiKey()
 
-  // Changed: Correct endpoint with variant=thumbnail query param
   const response = await fetch(
     `${OPENAI_API_BASE}/videos/${videoId}/content?variant=thumbnail`,
     {
@@ -173,15 +163,7 @@ export async function downloadThumbnail(videoId: string): Promise<Buffer> {
   )
 
   if (!response.ok) {
-    const rawText = await response.text()
-    console.error(`[Sora] Thumbnail download failed ${response.status}:`, rawText)
-    let errorMessage = `Thumbnail download failed with status ${response.status}`
-    try {
-      const err = JSON.parse(rawText) as { error?: { message?: string } }
-      if (err?.error?.message) errorMessage = err.error.message
-    } catch {
-      // ignore
-    }
+    const errorMessage = await extractErrorMessage(response, 'Thumbnail download')
     throw new Error(errorMessage)
   }
 
@@ -195,7 +177,6 @@ export async function remixVideo(
 ): Promise<{ id: string; status: string; progress: number }> {
   const apiKey = getApiKey()
 
-  // Changed: Correct remix endpoint POST /v1/videos/{video_id}/remix with JSON body
   const response = await fetch(`${OPENAI_API_BASE}/videos/${videoId}/remix`, {
     method: 'POST',
     headers: {
@@ -205,20 +186,12 @@ export async function remixVideo(
     body: JSON.stringify({ prompt }),
   })
 
-  const rawText = await response.text()
-  console.log(`[Sora] POST /v1/videos/${videoId}/remix → ${response.status}:`, rawText)
-
   if (!response.ok) {
-    let errorMessage = 'Remix failed'
-    try {
-      const err = JSON.parse(rawText) as { error?: { message?: string } }
-      if (err?.error?.message) errorMessage = err.error.message
-    } catch {
-      // ignore
-    }
+    const errorMessage = await extractErrorMessage(response, 'Remix')
     throw new Error(errorMessage)
   }
 
+  const rawText = await response.text()
   const video = JSON.parse(rawText) as SoraVideoResponse
   return {
     id: video.id,
