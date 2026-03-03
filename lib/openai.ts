@@ -1,9 +1,11 @@
-// The OpenAI Sora Videos API uses:
-// - POST /v1/videos/generations to create a video (JSON body)
-// - GET /v1/videos/generations/{video_id} to poll status
-// - GET /v1/videos/generations/{video_id}/content to download MP4
-// - GET /v1/videos/generations/{video_id}/content?variant=thumbnail for thumbnail
-// Models: sora-2 (fast) and sora-2-pro (quality)
+// OpenAI Sora Videos API endpoints (from official docs):
+// - POST   /v1/videos                          — create video (multipart/form-data)
+// - GET    /v1/videos/{video_id}               — get status
+// - GET    /v1/videos/{video_id}/content       — download MP4 (variant=video)
+// - GET    /v1/videos/{video_id}/content?variant=thumbnail — thumbnail
+// - POST   /v1/videos/{video_id}/remix         — remix (JSON body)
+// - GET    /v1/videos                          — list videos
+// - DELETE /v1/videos/{video_id}               — delete video
 
 const OPENAI_API_BASE = 'https://api.openai.com/v1'
 
@@ -38,7 +40,6 @@ async function extractErrorMessage(response: Response, context: string): Promise
       error?: { message?: string; code?: string; type?: string }
     }
     if (err?.error?.message) {
-      // Surface the exact OpenAI error message (e.g. "Billing hard limit has been reached")
       errorMessage = err.error.message
     }
   } catch {
@@ -55,37 +56,40 @@ export async function startVideoGeneration(
 ): Promise<{ id: string; status: string; progress: number }> {
   const apiKey = getApiKey()
 
-  // Changed: Use JSON body with POST /v1/videos/generations (correct Sora API endpoint)
-  // seconds must be sent as a number, not a string
+  // Changed: Correct endpoint is POST /v1/videos with multipart/form-data
+  // per official OpenAI docs:
+  // curl -X POST "https://api.openai.com/v1/videos"
+  //   -H "Content-Type: multipart/form-data"
+  //   -F model="sora-2-pro"
+  //   -F prompt="..."
+  //   -F size="1280x720"
+  //   -F seconds="8"
   const resolvedModel = model === 'sora' ? 'sora-2' : model
-  const secondsNum = parseInt(seconds, 10)
 
-  const requestBody = {
-    prompt,
-    model: resolvedModel,
-    size,
-    n: 1,
-    seconds: secondsNum,
-  }
+  const formData = new FormData()
+  formData.append('prompt', prompt)
+  formData.append('model', resolvedModel)
+  formData.append('size', size)
+  formData.append('seconds', seconds) // docs show seconds as a string form field
 
-  console.log('[Sora] POST /v1/videos/generations', {
+  console.log('[Sora] POST /v1/videos (multipart/form-data)', {
     prompt: prompt.slice(0, 50),
     model: resolvedModel,
     size,
-    seconds: secondsNum,
+    seconds,
   })
 
-  const response = await fetch(`${OPENAI_API_BASE}/videos/generations`, {
+  // Changed: Use /v1/videos (not /v1/videos/generations)
+  const response = await fetch(`${OPENAI_API_BASE}/videos`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
+      // Do NOT set Content-Type manually — fetch sets it automatically with the boundary for FormData
     },
-    body: JSON.stringify(requestBody),
+    body: formData,
   })
 
   if (!response.ok) {
-    // Use extractErrorMessage to surface billing errors and other OpenAI errors clearly
     const errorMessage = await extractErrorMessage(response, 'Video generation')
     throw new Error(errorMessage)
   }
@@ -107,12 +111,11 @@ export async function getVideoStatus(videoId: string): Promise<{
 }> {
   const apiKey = getApiKey()
 
-  // Changed: Use correct endpoint /v1/videos/generations/{video_id}
-  const response = await fetch(`${OPENAI_API_BASE}/videos/generations/${videoId}`, {
+  // Changed: Correct endpoint is GET /v1/videos/{video_id}
+  const response = await fetch(`${OPENAI_API_BASE}/videos/${videoId}`, {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
     },
   })
 
@@ -143,8 +146,8 @@ export async function getVideoStatus(videoId: string): Promise<{
 export async function downloadVideoContent(videoId: string): Promise<Buffer> {
   const apiKey = getApiKey()
 
-  // Changed: Use correct endpoint /v1/videos/generations/{video_id}/content
-  const response = await fetch(`${OPENAI_API_BASE}/videos/generations/${videoId}/content`, {
+  // Changed: Correct endpoint is GET /v1/videos/{video_id}/content
+  const response = await fetch(`${OPENAI_API_BASE}/videos/${videoId}/content`, {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -163,9 +166,9 @@ export async function downloadVideoContent(videoId: string): Promise<Buffer> {
 export async function downloadThumbnail(videoId: string): Promise<Buffer> {
   const apiKey = getApiKey()
 
-  // Changed: Use correct endpoint /v1/videos/generations/{video_id}/content?variant=thumbnail
+  // Changed: Correct endpoint is GET /v1/videos/{video_id}/content?variant=thumbnail
   const response = await fetch(
-    `${OPENAI_API_BASE}/videos/generations/${videoId}/content?variant=thumbnail`,
+    `${OPENAI_API_BASE}/videos/${videoId}/content?variant=thumbnail`,
     {
       method: 'GET',
       headers: {
@@ -189,8 +192,12 @@ export async function remixVideo(
 ): Promise<{ id: string; status: string; progress: number }> {
   const apiKey = getApiKey()
 
-  // Changed: Use correct endpoint /v1/videos/generations/{video_id}/remix
-  const response = await fetch(`${OPENAI_API_BASE}/videos/generations/${videoId}/remix`, {
+  // Changed: Correct endpoint is POST /v1/videos/{video_id}/remix with JSON body
+  // per official OpenAI docs:
+  // curl -X POST "https://api.openai.com/v1/videos/<previous_video_id>/remix"
+  //   -H "Content-Type: application/json"
+  //   -d '{ "prompt": "..." }'
+  const response = await fetch(`${OPENAI_API_BASE}/videos/${videoId}/remix`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
