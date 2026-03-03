@@ -7,6 +7,9 @@ import type { GenerateVideoRequest } from '@/types'
 const VALID_SECONDS = ['4', '8', '12']
 const VALID_MODELS = ['sora-2', 'sora-2-pro']
 
+// Changed: Valid size values per the OpenAI API
+const VALID_SIZES = ['1280x720', '1920x1080', '480x480']
+
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as GenerateVideoRequest
@@ -53,6 +56,13 @@ export async function POST(req: NextRequest) {
     // Changed: Validate model
     if (!VALID_MODELS.includes(resolvedModel)) {
       const msg = `Invalid model "${resolvedModel}". Must be one of: ${VALID_MODELS.join(', ')}`
+      console.error(`[Generate API] ${msg}`)
+      return NextResponse.json({ error: msg }, { status: 400 })
+    }
+
+    // Changed: Validate size
+    if (!VALID_SIZES.includes(resolvedSize)) {
+      const msg = `Invalid size "${resolvedSize}". Must be one of: ${VALID_SIZES.join(', ')}`
       console.error(`[Generate API] ${msg}`)
       return NextResponse.json({ error: msg }, { status: 400 })
     }

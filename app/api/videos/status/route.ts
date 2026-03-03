@@ -25,9 +25,22 @@ export async function GET(req: NextRequest) {
     if (status.error) {
       updates.error_message = status.error
     }
+    // Changed: Store the video URL in Cosmic when available so download can use it
+    if (status.videoUrl) {
+      updates.video_url = status.videoUrl
+    }
     await updateVideoRecord(cosmicId, updates)
 
-    return NextResponse.json({ data: status })
+    // Changed: Return videoUrl in the response so the client can use it for preview
+    return NextResponse.json({
+      data: {
+        id: status.id,
+        status: status.status,
+        progress: status.progress,
+        error: status.error,
+        videoUrl: status.videoUrl,
+      },
+    })
   } catch (error) {
     // Changed: Log full error for debugging
     const message = error instanceof Error ? error.message : 'Failed to get status'

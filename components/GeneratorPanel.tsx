@@ -12,6 +12,8 @@ interface JobState {
   status: string
   progress: number
   prompt: string
+  // Changed: Store the video URL when generation is complete for preview/download
+  videoUrl?: string
 }
 
 const EXAMPLE_PROMPTS = [
@@ -37,13 +39,20 @@ export default function GeneratorPanel() {
 
   const pollStatus = useCallback(
     (cosmicId: string, openaiVideoId: string) => {
+      // Changed: Poll every 10 seconds — video generation takes minutes
       const interval = setInterval(async () => {
         try {
           const res = await fetch(
             `/api/videos/status?openaiVideoId=${openaiVideoId}&cosmicId=${cosmicId}`
           )
           const json = (await res.json()) as {
-            data?: { status: string; progress: number; error?: string }
+            data?: {
+              status: string
+              progress: number
+              error?: string
+              // Changed: Include videoUrl from the status API response
+              videoUrl?: string
+            }
             error?: string
           }
 
@@ -58,7 +67,14 @@ export default function GeneratorPanel() {
           if (!data) return
 
           setJob((prev) =>
-            prev ? { ...prev, status: data.status, progress: data.progress } : prev
+            prev
+              ? {
+                  ...prev,
+                  status: data.status,
+                  progress: data.progress,
+                  videoUrl: data.videoUrl ?? prev.videoUrl,
+                }
+              : prev
           )
 
           if (data.status === 'completed') {
@@ -123,9 +139,16 @@ export default function GeneratorPanel() {
     }
   }
 
+  // Changed: Use videoUrl from job state for download, with fallback to API endpoint
   const handleDownload = () => {
     if (!job) return
-    const url = `/api/videos/download?openaiVideoId=${job.openaiVideoId}&cosmicId=${job.cosmicId}`
+    let url: string
+    if (job.videoUrl) {
+      // Changed: Use the download API with the direct URL for proxy download
+      url = `/api/videos/download?openaiVideoId=${job.openaiVideoId}&cosmicId=${job.cosmicId}&videoUrl=${encodeURIComponent(job.videoUrl)}`
+    } else {
+      url = `/api/videos/download?openaiVideoId=${job.openaiVideoId}&cosmicId=${job.cosmicId}`
+    }
     const a = document.createElement('a')
     a.href = url
     a.download = `sora-video-${job.openaiVideoId}.mp4`
@@ -302,6 +325,20 @@ export default function GeneratorPanel() {
 
           {phase === 'polling' && (
             <ProgressBar progress={job.progress} status={job.status} />
+          )}
+
+          {/* Changed: Show video preview when completed and videoUrl is available */}
+          {phase === 'completed' && job.videoUrl && (
+            <div className="rounded-lg overflow-hidden bg-black">
+              <video
+                src={job.videoUrl}
+                controls
+                autoPlay
+                muted
+                loop
+                className="w-full max-h-[400px] object-contain"
+              />
+            </div>
           )}
 
           {phase === 'completed' && (
