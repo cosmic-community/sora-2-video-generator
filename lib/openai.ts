@@ -1,9 +1,8 @@
 // The OpenAI Sora Videos API uses:
-// - POST /v1/videos to create a video (multipart/form-data)
-// - GET /v1/videos/{video_id} to poll status
-// - GET /v1/videos/{video_id}/content to download MP4
-// - GET /v1/videos/{video_id}/content?variant=thumbnail for thumbnail
-// - POST /v1/videos/{video_id}/remix to remix
+// - POST /v1/videos/generations to create a video (JSON body)
+// - GET /v1/videos/generations/{video_id} to poll status
+// - GET /v1/videos/generations/{video_id}/content to download MP4
+// - GET /v1/videos/generations/{video_id}/content?variant=thumbnail for thumbnail
 // Models: sora-2 (fast) and sora-2-pro (quality)
 
 const OPENAI_API_BASE = 'https://api.openai.com/v1'
@@ -21,14 +20,14 @@ interface SoraVideoResponse {
   object?: string
   status: string
   progress?: number
-  seconds?: string
+  seconds?: number | string
   size?: string
   model?: string
   created_at?: number
   error?: { message?: string }
 }
 
-// Changed: Extract a detailed error message from OpenAI API error responses,
+// Extract a detailed error message from OpenAI API error responses,
 // including billing errors like "Billing hard limit has been reached"
 async function extractErrorMessage(response: Response, context: string): Promise<string> {
   let errorMessage = `${context} failed with status ${response.status}`
@@ -56,27 +55,37 @@ export async function startVideoGeneration(
 ): Promise<{ id: string; status: string; progress: number }> {
   const apiKey = getApiKey()
 
-  // Use multipart/form-data as required by the Sora Videos API
-  // Endpoint: POST /v1/videos
-  const formData = new FormData()
-  formData.append('prompt', prompt)
-  formData.append('model', model === 'sora' ? 'sora-2' : model)
-  formData.append('size', size)
-  formData.append('seconds', seconds)
+  // Changed: Use JSON body with POST /v1/videos/generations (correct Sora API endpoint)
+  // seconds must be sent as a number, not a string
+  const resolvedModel = model === 'sora' ? 'sora-2' : model
+  const secondsNum = parseInt(seconds, 10)
 
-  console.log('[Sora] POST /v1/videos', { prompt: prompt.slice(0, 50), model, size, seconds })
+  const requestBody = {
+    prompt,
+    model: resolvedModel,
+    size,
+    n: 1,
+    seconds: secondsNum,
+  }
 
-  const response = await fetch(`${OPENAI_API_BASE}/videos`, {
+  console.log('[Sora] POST /v1/videos/generations', {
+    prompt: prompt.slice(0, 50),
+    model: resolvedModel,
+    size,
+    seconds: secondsNum,
+  })
+
+  const response = await fetch(`${OPENAI_API_BASE}/videos/generations`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
-      // Do NOT set Content-Type for multipart/form-data — fetch sets it with boundary automatically
+      'Content-Type': 'application/json',
     },
-    body: formData,
+    body: JSON.stringify(requestBody),
   })
 
   if (!response.ok) {
-    // Changed: Use extractErrorMessage to surface billing errors and other OpenAI errors clearly
+    // Use extractErrorMessage to surface billing errors and other OpenAI errors clearly
     const errorMessage = await extractErrorMessage(response, 'Video generation')
     throw new Error(errorMessage)
   }
@@ -98,7 +107,8 @@ export async function getVideoStatus(videoId: string): Promise<{
 }> {
   const apiKey = getApiKey()
 
-  const response = await fetch(`${OPENAI_API_BASE}/videos/${videoId}`, {
+  // Changed: Use correct endpoint /v1/videos/generations/{video_id}
+  const response = await fetch(`${OPENAI_API_BASE}/videos/generations/${videoId}`, {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -133,7 +143,8 @@ export async function getVideoStatus(videoId: string): Promise<{
 export async function downloadVideoContent(videoId: string): Promise<Buffer> {
   const apiKey = getApiKey()
 
-  const response = await fetch(`${OPENAI_API_BASE}/videos/${videoId}/content`, {
+  // Changed: Use correct endpoint /v1/videos/generations/{video_id}/content
+  const response = await fetch(`${OPENAI_API_BASE}/videos/generations/${videoId}/content`, {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -152,8 +163,9 @@ export async function downloadVideoContent(videoId: string): Promise<Buffer> {
 export async function downloadThumbnail(videoId: string): Promise<Buffer> {
   const apiKey = getApiKey()
 
+  // Changed: Use correct endpoint /v1/videos/generations/{video_id}/content?variant=thumbnail
   const response = await fetch(
-    `${OPENAI_API_BASE}/videos/${videoId}/content?variant=thumbnail`,
+    `${OPENAI_API_BASE}/videos/generations/${videoId}/content?variant=thumbnail`,
     {
       method: 'GET',
       headers: {
@@ -177,7 +189,8 @@ export async function remixVideo(
 ): Promise<{ id: string; status: string; progress: number }> {
   const apiKey = getApiKey()
 
-  const response = await fetch(`${OPENAI_API_BASE}/videos/${videoId}/remix`, {
+  // Changed: Use correct endpoint /v1/videos/generations/{video_id}/remix
+  const response = await fetch(`${OPENAI_API_BASE}/videos/generations/${videoId}/remix`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
