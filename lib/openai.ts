@@ -1,51 +1,15 @@
-// OpenAI Sora Videos API endpoints (from official docs):
-// - POST   /v1/videos                          — create video (multipart/form-data)
-// - GET    /v1/videos/{video_id}               — get status
-// - GET    /v1/videos/{video_id}/content       — download MP4 (variant=video)
-// - GET    /v1/videos/{video_id}/content?variant=thumbnail — thumbnail
-// - POST   /v1/videos/{video_id}/remix         — remix (JSON body)
-// - GET    /v1/videos                          — list videos
-// - DELETE /v1/videos/{video_id}               — delete video
+// Uses the official OpenAI Node.js SDK (openai npm package) for all Sora Videos API calls.
+// The SDK handles multipart/form-data encoding, correct endpoints, and auth automatically.
+// Official docs: https://developers.openai.com/api/docs/guides/video-generation
 
-const OPENAI_API_BASE = 'https://api.openai.com/v1'
+import OpenAI from 'openai'
 
-function getApiKey(): string {
-  const key = process.env.OPENAI_API_KEY
-  if (!key) {
+function getClient(): OpenAI {
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) {
     throw new Error('OPENAI_API_KEY environment variable is not set')
   }
-  return key
-}
-
-interface SoraVideoResponse {
-  id: string
-  object?: string
-  status: string
-  progress?: number
-  seconds?: number | string
-  size?: string
-  model?: string
-  created_at?: number
-  error?: { message?: string }
-}
-
-// Extract a detailed error message from OpenAI API error responses,
-// including billing errors like "Billing hard limit has been reached"
-async function extractErrorMessage(response: Response, context: string): Promise<string> {
-  let errorMessage = `${context} failed with status ${response.status}`
-  try {
-    const rawText = await response.text()
-    console.error(`[Sora] ${context} error (${response.status}):`, rawText)
-    const err = JSON.parse(rawText) as {
-      error?: { message?: string; code?: string; type?: string }
-    }
-    if (err?.error?.message) {
-      errorMessage = err.error.message
-    }
-  } catch {
-    // ignore JSON parse errors — keep default message
-  }
-  return errorMessage
+  return new OpenAI({ apiKey })
 }
 
 export async function startVideoGeneration(
@@ -54,52 +18,36 @@ export async function startVideoGeneration(
   size: string,
   seconds: string
 ): Promise<{ id: string; status: string; progress: number }> {
-  const apiKey = getApiKey()
+  const openai = getClient()
 
-  // Changed: Correct endpoint is POST /v1/videos with multipart/form-data
-  // per official OpenAI docs:
-  // curl -X POST "https://api.openai.com/v1/videos"
-  //   -H "Content-Type: multipart/form-data"
-  //   -F model="sora-2-pro"
-  //   -F prompt="..."
-  //   -F size="1280x720"
-  //   -F seconds="8"
+  // Resolve model alias: 'sora' → 'sora-2'
   const resolvedModel = model === 'sora' ? 'sora-2' : model
 
-  const formData = new FormData()
-  formData.append('prompt', prompt)
-  formData.append('model', resolvedModel)
-  formData.append('size', size)
-  formData.append('seconds', seconds) // docs show seconds as a string form field
-
-  console.log('[Sora] POST /v1/videos (multipart/form-data)', {
-    prompt: prompt.slice(0, 50),
+  console.log('[Sora] Creating video via SDK', {
+    prompt: prompt.slice(0, 60),
     model: resolvedModel,
     size,
     seconds,
   })
 
-  // Changed: Use /v1/videos (not /v1/videos/generations)
-  const response = await fetch(`${OPENAI_API_BASE}/videos`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      // Do NOT set Content-Type manually — fetch sets it automatically with the boundary for FormData
-    },
-    body: formData,
+  // Changed: Use official SDK openai.videos.create() instead of raw fetch.
+  // The SDK sends POST /v1/videos with correct multipart/form-data encoding automatically.
+  const video = await openai.videos.create({
+    prompt,
+    model: resolvedModel,
+    // The SDK accepts these as typed parameters
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    size: size as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    seconds: seconds as any,
   })
 
-  if (!response.ok) {
-    const errorMessage = await extractErrorMessage(response, 'Video generation')
-    throw new Error(errorMessage)
-  }
+  console.log('[Sora] Video created:', { id: video.id, status: video.status })
 
-  const rawText = await response.text()
-  const video = JSON.parse(rawText) as SoraVideoResponse
   return {
     id: video.id,
     status: video.status ?? 'queued',
-    progress: video.progress ?? 0,
+    progress: (video.progress as number) ?? 0,
   }
 }
 
@@ -109,80 +57,51 @@ export async function getVideoStatus(videoId: string): Promise<{
   progress: number
   error?: string
 }> {
-  const apiKey = getApiKey()
+  const openai = getClient()
 
-  // Changed: Correct endpoint is GET /v1/videos/{video_id}
-  const response = await fetch(`${OPENAI_API_BASE}/videos/${videoId}`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
-  })
-
-  if (!response.ok) {
-    const errorMessage = await extractErrorMessage(response, 'Video status')
-    throw new Error(errorMessage)
-  }
-
-  const rawText = await response.text()
-  const video = JSON.parse(rawText) as SoraVideoResponse
+  // Changed: Use official SDK openai.videos.retrieve() — sends GET /v1/videos/{video_id}
+  const video = await openai.videos.retrieve(videoId)
 
   // Derive progress from status if not provided numerically
-  let progress = video.progress ?? 0
+  let progress = (video.progress as number) ?? 0
   if (video.status === 'completed') {
     progress = 100
   } else if (video.status === 'in_progress' && progress === 0) {
     progress = 50
   }
 
+  // The SDK throws on non-2xx responses, so we only reach here on success
+  const errorObj = video as unknown as { error?: { message?: string } }
+
   return {
     id: video.id,
     status: video.status,
     progress,
-    error: video.error?.message,
+    error: errorObj.error?.message,
   }
 }
 
 export async function downloadVideoContent(videoId: string): Promise<Buffer> {
-  const apiKey = getApiKey()
+  const openai = getClient()
 
-  // Changed: Correct endpoint is GET /v1/videos/{video_id}/content
-  const response = await fetch(`${OPENAI_API_BASE}/videos/${videoId}/content`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
-  })
+  // Changed: Use official SDK openai.videos.downloadContent() — GET /v1/videos/{video_id}/content
+  const content = await openai.videos.downloadContent(videoId)
 
-  if (!response.ok) {
-    const errorMessage = await extractErrorMessage(response, 'Video download')
-    throw new Error(errorMessage)
-  }
-
-  const arrayBuffer = await response.arrayBuffer()
+  const arrayBuffer = await content.arrayBuffer()
   return Buffer.from(arrayBuffer)
 }
 
 export async function downloadThumbnail(videoId: string): Promise<Buffer> {
-  const apiKey = getApiKey()
+  const openai = getClient()
 
-  // Changed: Correct endpoint is GET /v1/videos/{video_id}/content?variant=thumbnail
-  const response = await fetch(
-    `${OPENAI_API_BASE}/videos/${videoId}/content?variant=thumbnail`,
-    {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-      },
-    }
-  )
+  // Changed: Use official SDK with variant=thumbnail query param
+  // GET /v1/videos/{video_id}/content?variant=thumbnail
+  const content = await openai.videos.downloadContent(videoId, {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    query: { variant: 'thumbnail' } as any,
+  })
 
-  if (!response.ok) {
-    const errorMessage = await extractErrorMessage(response, 'Thumbnail download')
-    throw new Error(errorMessage)
-  }
-
-  const arrayBuffer = await response.arrayBuffer()
+  const arrayBuffer = await content.arrayBuffer()
   return Buffer.from(arrayBuffer)
 }
 
@@ -190,29 +109,13 @@ export async function remixVideo(
   videoId: string,
   prompt: string
 ): Promise<{ id: string; status: string; progress: number }> {
-  const apiKey = getApiKey()
+  const openai = getClient()
 
-  // Changed: Correct endpoint is POST /v1/videos/{video_id}/remix with JSON body
-  // per official OpenAI docs:
-  // curl -X POST "https://api.openai.com/v1/videos/<previous_video_id>/remix"
-  //   -H "Content-Type: application/json"
-  //   -d '{ "prompt": "..." }'
-  const response = await fetch(`${OPENAI_API_BASE}/videos/${videoId}/remix`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ prompt }),
-  })
+  // Changed: Use official SDK for remix — POST /v1/videos/{video_id}/remix with JSON body
+  // The SDK handles Content-Type: application/json automatically
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const video = await (openai.videos as any).remix(videoId, { prompt })
 
-  if (!response.ok) {
-    const errorMessage = await extractErrorMessage(response, 'Remix')
-    throw new Error(errorMessage)
-  }
-
-  const rawText = await response.text()
-  const video = JSON.parse(rawText) as SoraVideoResponse
   return {
     id: video.id,
     status: video.status ?? 'queued',
