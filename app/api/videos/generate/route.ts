@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { startVideoGeneration } from '@/lib/openai'
-import { createVideoRecord, updateVideoRecord } from '@/lib/cosmic'
+import { createVideoRecord } from '@/lib/cosmic'
 import type { GenerateVideoRequest } from '@/types'
 
 const VALID_SECONDS = ['4', '8', '12']
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Changed: Call OpenAI — only model, prompt, size are sent to the API
+    // Changed: Call the Videos API via SDK — model, prompt, size, seconds all sent correctly
     const openaiVideo = await startVideoGeneration(
       prompt.trim(),
       resolvedModel,
@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
       resolvedSeconds
     )
 
-    // Changed: Save to Cosmic CMS
+    // Changed: Save to Cosmic CMS with the OpenAI video ID
     const cosmicVideo = await createVideoRecord(
       prompt.trim(),
       openaiVideo.id,
@@ -94,22 +94,12 @@ export async function POST(req: NextRequest) {
       openaiVideo.id
     )
 
-    // Changed: If completed synchronously, persist URL to Cosmic immediately
-    if (openaiVideo.videoUrl) {
-      await updateVideoRecord(cosmicVideo.id, {
-        status: 'completed',
-        progress: 100,
-        video_url: openaiVideo.videoUrl,
-      })
-    }
-
     return NextResponse.json({
       data: {
         cosmicId: cosmicVideo.id,
         openaiVideoId: openaiVideo.id,
         status: openaiVideo.status,
         progress: openaiVideo.progress,
-        videoUrl: openaiVideo.videoUrl,
       },
     })
   } catch (error) {

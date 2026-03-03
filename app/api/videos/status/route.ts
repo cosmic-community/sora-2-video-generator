@@ -15,18 +15,16 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // Changed: Uses openai.videos.retrieve() which hits GET /v1/videos/{id}
     const status = await getVideoStatus(openaiVideoId)
 
-    // Changed: Persist status + video URL to Cosmic
+    // Changed: Persist status + progress to Cosmic
     const updates: Record<string, string | number> = {
       status: status.status,
       progress: status.progress,
     }
     if (status.error) {
       updates.error_message = status.error
-    }
-    if (status.videoUrl) {
-      updates.video_url = status.videoUrl
     }
 
     await updateVideoRecord(cosmicId, updates)
@@ -37,7 +35,6 @@ export async function GET(req: NextRequest) {
         status: status.status,
         progress: status.progress,
         error: status.error,
-        videoUrl: status.videoUrl,
       },
     })
   } catch (error) {

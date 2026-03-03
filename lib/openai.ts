@@ -1,39 +1,21 @@
-// Direct REST API calls to OpenAI for Sora video generation.
-// The Sora model is accessed via POST /v1/images/generations with model "sora".
-// ONLY accepted parameters: model, prompt, size.
-// All other parameters (n, n_seconds, response_format, quality, etc.) are REJECTED by the API.
-// Docs: https://platform.openai.com/docs/guides/video-generation
+// Sora video generation using the official OpenAI Videos API.
+// SDK: openai.videos.create(), openai.videos.retrieve(), openai.videos.downloadContent()
+// Docs: https://developers.openai.com/api/docs/guides/video-generation
+//
+// The Videos API (in preview) has five endpoints:
+//   POST   /v1/videos                  → Start a render job
+//   GET    /v1/videos/{video_id}       → Get status & progress
+//   GET    /v1/videos/{video_id}/content → Download the MP4
+//   GET    /v1/videos                  → List videos
+//   DELETE /v1/videos/{video_id}       → Delete a video
+//
+// Models: "sora-2" (fast) and "sora-2-pro" (quality)
+// Sizes: "1280x720", "1920x1080", "480x480" etc.
+// Seconds: "4", "8", "12" (string)
 
-const OPENAI_API_BASE = 'https://api.openai.com/v1'
+import OpenAI from 'openai'
 
-interface OpenAIErrorResponse {
-  error?: {
-    message?: string
-    type?: string
-    param?: string
-    code?: string
-  }
-}
-
-// Changed: Flexible response shape — Sora can return sync (with data[]) or async (with status)
-interface SoraResponse {
-  id: string
-  object?: string
-  created?: number
-  status?: string
-  data?: Array<{
-    url?: string
-    revised_prompt?: string
-    b64_json?: string
-  }> | null
-  error?: {
-    message?: string
-    type?: string
-    code?: string
-  } | null
-}
-
-function getApiKey(): string {
+function getClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
     throw new Error(
@@ -41,59 +23,7 @@ function getApiKey(): string {
         'Get your key at https://platform.openai.com/api-keys'
     )
   }
-  return apiKey
-}
-
-function extractError(body: OpenAIErrorResponse, fallback: string): string {
-  const err = body?.error
-  if (!err) return fallback
-  const parts: string[] = []
-  if (err.message) parts.push(err.message)
-  if (err.type) parts.push(`type=${err.type}`)
-  if (err.param) parts.push(`param=${err.param}`)
-  if (err.code) parts.push(`code=${err.code}`)
-  return parts.length > 0 ? parts.join(' | ') : fallback
-}
-
-// Changed: Minimal HTTP helper — reads body once as text to avoid stream errors
-async function apiRequest<T>(
-  path: string,
-  options: { method?: string; body?: Record<string, unknown> } = {}
-): Promise<T> {
-  const apiKey = getApiKey()
-  const { method = 'GET', body } = options
-  const url = `${OPENAI_API_BASE}${path}`
-
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${apiKey}`,
-  }
-  const init: RequestInit = { method, headers }
-
-  if (body) {
-    headers['Content-Type'] = 'application/json'
-    init.body = JSON.stringify(body)
-    console.log(`[Sora] ${method} ${url}`, JSON.stringify(body))
-  } else {
-    console.log(`[Sora] ${method} ${url}`)
-  }
-
-  const res = await fetch(url, init)
-  const rawText = await res.text()
-
-  if (!res.ok) {
-    console.error(`[Sora] HTTP ${res.status} ${res.statusText}:`, rawText)
-    let msg = `OpenAI API error: ${res.status} ${res.statusText}`
-    try {
-      const parsed = JSON.parse(rawText) as OpenAIErrorResponse
-      msg = extractError(parsed, msg)
-    } catch {
-      // raw text already logged above
-    }
-    throw new Error(msg)
-  }
-
-  console.log(`[Sora] Response:`, rawText.slice(0, 600))
-  return JSON.parse(rawText) as T
+  return new OpenAI({ apiKey })
 }
 
 // Changed: Map UI sizes to Sora-supported sizes
@@ -107,116 +37,189 @@ function resolveSize(size: string): string {
   return map[size] ?? '1280x720'
 }
 
+// Changed: Extract a meaningful error message from OpenAI SDK errors
+function extractSdkError(error: unknown): string {
+  if (error instanceof OpenAI.APIError) {
+    const parts: string[] = [error.message]
+    if (error.type) parts.push(`type=${error.type}`)
+    if (error.code) parts.push(`code=${error.code}`)
+    if (error.param) parts.push(`param=${error.param}`)
+    return parts.join(' | ')
+  }
+  if (error instanceof Error) return error.message
+  return String(error)
+}
+
 // ---------------------------------------------------------------------------
-// Generate — sends ONLY model, prompt, size. Nothing else.
+// Generate — POST /v1/videos via openai.videos.create()
 // ---------------------------------------------------------------------------
-// Changed: Every other parameter (n, n_seconds, response_format) was rejected by OpenAI.
-// The "seconds" param is kept in the signature for Cosmic storage but NOT sent to OpenAI.
+// Changed: Uses the official Videos API, NOT /v1/images/generations.
+// The SDK method openai.videos.create() sends a POST to /v1/videos
+// with multipart/form-data containing: model, prompt, size, seconds.
+// Returns a job object with id, status, progress.
 export async function startVideoGeneration(
   prompt: string,
-  _model: string,
+  model: string,
   size: string,
-  _seconds: string
-): Promise<{ id: string; status: string; progress: number; videoUrl?: string }> {
+  seconds: string
+): Promise<{ id: string; status: string; progress: number }> {
+  const client = getClient()
   const mappedSize = resolveSize(size)
 
-  console.log('[Sora] startVideoGeneration:', {
+  // Changed: Use the actual model names from the docs: "sora-2" or "sora-2-pro"
+  const resolvedModel = model === 'sora-2-pro' ? 'sora-2-pro' : 'sora-2'
+
+  console.log('[Sora] Starting video generation via openai.videos.create():', {
     prompt: prompt.length > 80 ? prompt.slice(0, 80) + '...' : prompt,
+    model: resolvedModel,
     size: mappedSize,
+    seconds,
   })
 
-  // Changed: Absolute minimum payload — only what OpenAI accepts
-  const response = await apiRequest<SoraResponse>('/images/generations', {
-    method: 'POST',
-    body: {
-      model: 'sora',
+  try {
+    // Changed: Use the SDK's videos.create() method
+    // Per the docs, this calls POST /v1/videos with:
+    //   model: "sora-2" or "sora-2-pro"
+    //   prompt: text description
+    //   size: "1280x720" etc.
+    //   seconds: "4", "8", or "12" (string)
+    const video = await client.videos.create({
+      model: resolvedModel,
       prompt,
       size: mappedSize,
-    },
-  })
+      seconds,
+    } as Parameters<typeof client.videos.create>[0])
 
-  // Changed: Determine completion from response shape
-  let videoUrl: string | undefined
-  if (response.data && response.data.length > 0 && response.data[0]?.url) {
-    videoUrl = response.data[0].url
-  }
+    // Changed: The response is a job object:
+    // { id: "video_...", object: "video", status: "queued", progress: 0, ... }
+    const videoObj = video as unknown as {
+      id: string
+      status: string
+      progress: number
+    }
 
-  const status = videoUrl
-    ? 'completed'
-    : typeof response.status === 'string'
-      ? response.status
-      : 'queued'
+    console.log('[Sora] Video generation started:', {
+      id: videoObj.id,
+      status: videoObj.status,
+      progress: videoObj.progress,
+    })
 
-  console.log('[Sora] Generation started:', {
-    id: response.id,
-    status,
-    hasUrl: !!videoUrl,
-  })
-
-  return {
-    id: response.id,
-    status,
-    progress: status === 'completed' ? 100 : 0,
-    videoUrl,
+    return {
+      id: videoObj.id,
+      status: videoObj.status ?? 'queued',
+      progress: videoObj.progress ?? 0,
+    }
+  } catch (error) {
+    const msg = extractSdkError(error)
+    console.error('[Sora] videos.create() error:', msg)
+    throw new Error(msg)
   }
 }
 
 // ---------------------------------------------------------------------------
-// Poll status
+// Poll status — GET /v1/videos/{video_id} via openai.videos.retrieve()
 // ---------------------------------------------------------------------------
+// Changed: Uses the SDK's videos.retrieve() method to get current status.
+// Response: { id, status: "queued"|"in_progress"|"completed"|"failed", progress: 0-100 }
 export async function getVideoStatus(videoId: string): Promise<{
   id: string
   status: string
   progress: number
-  videoUrl?: string
   error?: string
 }> {
-  console.log(`[Sora] Polling status for ${videoId}`)
+  const client = getClient()
 
-  const video = await apiRequest<SoraResponse>(
-    `/images/generations/${encodeURIComponent(videoId)}`
-  )
+  console.log(`[Sora] Polling status via openai.videos.retrieve(): ${videoId}`)
 
-  const rawStatus =
-    typeof video.status === 'string' ? video.status : 'unknown'
+  try {
+    const video = await client.videos.retrieve(videoId)
 
-  let progress = 0
-  if (rawStatus === 'completed') progress = 100
-  else if (rawStatus === 'in_progress') progress = 50
-  else if (rawStatus === 'queued') progress = 5
+    const videoObj = video as unknown as {
+      id: string
+      status: string
+      progress: number
+      error?: { message?: string }
+    }
 
-  let videoUrl: string | undefined
-  if (
-    rawStatus === 'completed' &&
-    video.data &&
-    video.data.length > 0 &&
-    video.data[0]?.url
-  ) {
-    videoUrl = video.data[0].url
-  }
+    const errorMsg = videoObj.error?.message ?? undefined
 
-  const errorMsg = video.error?.message ?? undefined
+    console.log(
+      `[Sora] Status ${videoId}: ${videoObj.status}, progress=${videoObj.progress ?? 0}${errorMsg ? `, error=${errorMsg}` : ''}`
+    )
 
-  console.log(
-    `[Sora] Status ${videoId}: ${rawStatus}, progress=${progress}${videoUrl ? ', hasUrl' : ''}${errorMsg ? `, error=${errorMsg}` : ''}`
-  )
-
-  return {
-    id: video.id,
-    status: rawStatus,
-    progress,
-    videoUrl,
-    error: errorMsg,
+    return {
+      id: videoObj.id,
+      status: videoObj.status,
+      progress: videoObj.progress ?? 0,
+      error: errorMsg,
+    }
+  } catch (error) {
+    const msg = extractSdkError(error)
+    console.error(`[Sora] videos.retrieve() error for ${videoId}:`, msg)
+    throw new Error(msg)
   }
 }
 
 // ---------------------------------------------------------------------------
-// Download helpers
+// Download video — GET /v1/videos/{video_id}/content via openai.videos.downloadContent()
 // ---------------------------------------------------------------------------
-export async function downloadVideoFromUrl(
-  videoUrl: string
-): Promise<Buffer> {
-  console.log(`[Sora] Downloading from: ${videoUrl.slice(0, 80)}...`)
+// Changed: Uses the SDK's videos.downloadContent() method.
+// Per the docs, this streams the binary MP4 data.
+// "Download URLs are valid for a maximum of 1 hour after generation."
+export async function downloadVideoContent(videoId: string): Promise<Buffer> {
+  const client = getClient()
+
+  console.log(`[Sora] Downloading video via openai.videos.downloadContent(): ${videoId}`)
+
+  try {
+    const content = await client.videos.downloadContent(videoId)
+
+    // Changed: The SDK returns a Response-like object with arrayBuffer()
+    const body = content.arrayBuffer()
+    const buffer = Buffer.from(await body)
+
+    console.log(`[Sora] Downloaded video ${videoId}: ${buffer.byteLength} bytes`)
+    return buffer
+  } catch (error) {
+    const msg = extractSdkError(error)
+    console.error(`[Sora] videos.downloadContent() error for ${videoId}:`, msg)
+    throw new Error(msg)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Download thumbnail — GET /v1/videos/{video_id}/content?variant=thumbnail
+// ---------------------------------------------------------------------------
+// Changed: Per the docs, you can download thumbnail and spritesheet variants.
+// The variant query parameter specifies: "video" (default), "thumbnail", "spritesheet"
+export async function downloadThumbnail(videoId: string): Promise<Buffer> {
+  const client = getClient()
+
+  console.log(`[Sora] Downloading thumbnail for: ${videoId}`)
+
+  try {
+    // Changed: Pass variant parameter for thumbnail
+    const content = await client.videos.downloadContent(videoId, {
+      variant: 'thumbnail',
+    } as Parameters<typeof client.videos.downloadContent>[1])
+
+    const body = content.arrayBuffer()
+    const buffer = Buffer.from(await body)
+
+    console.log(`[Sora] Downloaded thumbnail ${videoId}: ${buffer.byteLength} bytes`)
+    return buffer
+  } catch (error) {
+    const msg = extractSdkError(error)
+    console.error(`[Sora] thumbnail download error for ${videoId}:`, msg)
+    throw new Error(msg)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Download from a direct URL (fallback helper)
+// ---------------------------------------------------------------------------
+export async function downloadVideoFromUrl(videoUrl: string): Promise<Buffer> {
+  console.log(`[Sora] Downloading from URL: ${videoUrl.slice(0, 80)}...`)
   const res = await fetch(videoUrl, { redirect: 'follow' })
   if (!res.ok)
     throw new Error(`Download failed: ${res.status} ${res.statusText}`)
@@ -225,66 +228,68 @@ export async function downloadVideoFromUrl(
   return Buffer.from(ab)
 }
 
-export async function downloadVideoContent(
-  videoId: string
-): Promise<Buffer> {
-  const status = await getVideoStatus(videoId)
-  if (status.status !== 'completed')
-    throw new Error(`Video not completed: ${status.status}`)
-  if (!status.videoUrl) throw new Error('No video URL available')
-  return downloadVideoFromUrl(status.videoUrl)
-}
-
-export async function downloadThumbnail(videoId: string): Promise<Buffer> {
-  // Changed: Sora doesn't have a separate thumbnail endpoint — reuse video URL
-  const status = await getVideoStatus(videoId)
-  if (!status.videoUrl) throw new Error('No URL available for thumbnail')
-  const res = await fetch(status.videoUrl, { redirect: 'follow' })
-  if (!res.ok)
-    throw new Error(`Thumbnail download failed: ${res.status}`)
-  const ab = await res.arrayBuffer()
-  return Buffer.from(ab)
-}
-
 // ---------------------------------------------------------------------------
-// Remix (new generation with different prompt)
+// Remix — POST /v1/videos/{video_id}/remix
 // ---------------------------------------------------------------------------
+// Changed: Per the docs, remix uses a dedicated endpoint:
+//   POST /v1/videos/<previous_video_id>/remix
+//   Body: { "prompt": "..." }
 export async function remixVideo(
-  _videoId: string,
+  videoId: string,
   prompt: string
-): Promise<{
-  id: string
-  status: string
-  progress: number
-  videoUrl?: string
-}> {
-  console.log('[Sora] Remix:', { prompt: prompt.slice(0, 80) })
-
-  // Changed: Same minimal payload — just model, prompt, size
-  const response = await apiRequest<SoraResponse>('/images/generations', {
-    method: 'POST',
-    body: {
-      model: 'sora',
-      prompt,
-      size: '1280x720',
-    },
+): Promise<{ id: string; status: string; progress: number }> {
+  console.log('[Sora] Remixing video:', {
+    originalVideoId: videoId,
+    prompt: prompt.slice(0, 80),
   })
 
-  let videoUrl: string | undefined
-  if (response.data && response.data.length > 0 && response.data[0]?.url) {
-    videoUrl = response.data[0].url
+  // Changed: The SDK may not have a .remix() method yet, so use raw REST
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) throw new Error('[Sora] OPENAI_API_KEY is not set')
+
+  const url = `https://api.openai.com/v1/videos/${encodeURIComponent(videoId)}/remix`
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ prompt }),
+  })
+
+  const rawText = await res.text()
+
+  if (!res.ok) {
+    console.error(`[Sora] Remix error (HTTP ${res.status}):`, rawText)
+    let msg = `OpenAI API error: ${res.status} ${res.statusText}`
+    try {
+      const parsed = JSON.parse(rawText) as {
+        error?: { message?: string; type?: string; code?: string }
+      }
+      if (parsed.error?.message) msg = parsed.error.message
+    } catch {
+      // raw text already logged
+    }
+    throw new Error(msg)
   }
 
-  const status = videoUrl
-    ? 'completed'
-    : typeof response.status === 'string'
-      ? response.status
-      : 'queued'
+  console.log('[Sora] Remix response:', rawText.slice(0, 400))
+
+  const video = JSON.parse(rawText) as {
+    id: string
+    status: string
+    progress: number
+  }
+
+  console.log('[Sora] Remix started:', {
+    id: video.id,
+    status: video.status,
+  })
 
   return {
-    id: response.id,
-    status,
-    progress: status === 'completed' ? 100 : 0,
-    videoUrl,
+    id: video.id,
+    status: video.status ?? 'queued',
+    progress: video.progress ?? 0,
   }
 }

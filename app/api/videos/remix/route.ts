@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { remixVideo } from '@/lib/openai'
-import { createVideoRecord, updateVideoRecord } from '@/lib/cosmic'
+import { createVideoRecord } from '@/lib/cosmic'
 import type { RemixVideoRequest } from '@/types'
 
 export async function POST(req: NextRequest) {
@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Changed: Uses POST /v1/videos/{video_id}/remix per the official docs
     const remixedVideo = await remixVideo(openai_video_id, prompt.trim())
 
     const cosmicVideo = await createVideoRecord(
@@ -39,17 +40,7 @@ export async function POST(req: NextRequest) {
     console.log('[Remix API] Created remix:', {
       cosmicId: cosmicVideo.id,
       openaiVideoId: remixedVideo.id,
-      hasVideoUrl: !!remixedVideo.videoUrl,
     })
-
-    // Changed: If remix completed synchronously, update Cosmic with the video URL
-    if (remixedVideo.videoUrl) {
-      await updateVideoRecord(cosmicVideo.id, {
-        status: 'completed',
-        progress: 100,
-        video_url: remixedVideo.videoUrl,
-      })
-    }
 
     return NextResponse.json({
       data: {
@@ -57,7 +48,6 @@ export async function POST(req: NextRequest) {
         openaiVideoId: remixedVideo.id,
         status: remixedVideo.status,
         progress: remixedVideo.progress,
-        videoUrl: remixedVideo.videoUrl,
       },
     })
   } catch (error) {

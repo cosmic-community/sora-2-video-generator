@@ -14,14 +14,9 @@ export default function VideoCard({ video, onRemix }: VideoCardProps) {
   const isPending =
     metadata.status === 'queued' || metadata.status === 'in_progress'
 
-  // Changed: Use video_url from Cosmic metadata if available for download
+  // Changed: Download uses the /content endpoint via our proxy API
   const handleDownload = () => {
-    let url: string
-    if (metadata.video_url) {
-      url = `/api/videos/download?openaiVideoId=${metadata.openai_video_id}&cosmicId=${video.id}&videoUrl=${encodeURIComponent(metadata.video_url)}`
-    } else {
-      url = `/api/videos/download?openaiVideoId=${metadata.openai_video_id}&cosmicId=${video.id}`
-    }
+    const url = `/api/videos/download?openaiVideoId=${metadata.openai_video_id}&cosmicId=${video.id}`
     const a = document.createElement('a')
     a.href = url
     a.download = `sora-${metadata.openai_video_id}.mp4`
@@ -57,27 +52,7 @@ export default function VideoCard({ video, onRemix }: VideoCardProps) {
     <div className="bg-surface-card border border-surface-border rounded-xl overflow-hidden hover:border-brand/30 transition-colors duration-200 flex flex-col">
       {/* Thumbnail / video preview */}
       <div className="aspect-video bg-surface flex items-center justify-center relative overflow-hidden">
-        {/* Changed: Show actual video preview if video_url is available and completed */}
-        {isComplete && metadata.video_url ? (
-          <video
-            src={metadata.video_url}
-            className="w-full h-full object-cover"
-            muted
-            loop
-            playsInline
-            onMouseEnter={(e) => {
-              const target = e.currentTarget
-              target.play().catch(() => {
-                // Autoplay may be blocked, that's fine
-              })
-            }}
-            onMouseLeave={(e) => {
-              const target = e.currentTarget
-              target.pause()
-              target.currentTime = 0
-            }}
-          />
-        ) : isComplete ? (
+        {isComplete ? (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-surface to-surface-elevated">
             <svg
               viewBox="0 0 24 24"

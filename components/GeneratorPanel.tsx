@@ -12,7 +12,6 @@ interface JobState {
   status: string
   progress: number
   prompt: string
-  videoUrl?: string
 }
 
 const EXAMPLE_PROMPTS = [
@@ -36,9 +35,9 @@ export default function GeneratorPanel() {
   const [job, setJob] = useState<JobState | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // Changed: Poll every 10-20 seconds per the official docs recommendation
   const pollStatus = useCallback(
     (cosmicId: string, openaiVideoId: string) => {
-      // Changed: Poll every 10 seconds — video generation takes minutes
       const interval = setInterval(async () => {
         try {
           const res = await fetch(
@@ -49,7 +48,6 @@ export default function GeneratorPanel() {
               status: string
               progress: number
               error?: string
-              videoUrl?: string
             }
             error?: string
           }
@@ -70,7 +68,6 @@ export default function GeneratorPanel() {
                   ...prev,
                   status: data.status,
                   progress: data.progress,
-                  videoUrl: data.videoUrl ?? prev.videoUrl,
                 }
               : prev
           )
@@ -86,7 +83,7 @@ export default function GeneratorPanel() {
         } catch {
           // keep polling on transient errors
         }
-      }, 10000)
+      }, 15000) // Changed: 15s interval per docs recommendation of 10-20s
 
       // Cleanup after 30 minutes max
       setTimeout(() => clearInterval(interval), 30 * 60 * 1000)
@@ -114,7 +111,6 @@ export default function GeneratorPanel() {
           openaiVideoId: string
           status: string
           progress: number
-          videoUrl?: string
         }
         error?: string
       }
@@ -125,32 +121,10 @@ export default function GeneratorPanel() {
         return
       }
 
-      const { cosmicId, openaiVideoId, status, progress, videoUrl } = json.data
-
-      // Changed: If video completed synchronously (has URL), skip polling
-      if (status === 'completed' && videoUrl) {
-        console.log('[GeneratorPanel] Video completed synchronously!')
-        setJob({
-          cosmicId,
-          openaiVideoId,
-          status,
-          progress: 100,
-          prompt: prompt.trim(),
-          videoUrl,
-        })
-        setPhase('completed')
-      } else {
-        setJob({
-          cosmicId,
-          openaiVideoId,
-          status,
-          progress,
-          prompt: prompt.trim(),
-          videoUrl,
-        })
-        setPhase('polling')
-        pollStatus(cosmicId, openaiVideoId)
-      }
+      const { cosmicId, openaiVideoId, status, progress } = json.data
+      setJob({ cosmicId, openaiVideoId, status, progress, prompt: prompt.trim() })
+      setPhase('polling')
+      pollStatus(cosmicId, openaiVideoId)
     } catch (err) {
       setPhase('failed')
       const networkMsg =
@@ -159,15 +133,10 @@ export default function GeneratorPanel() {
     }
   }
 
-  // Changed: Use videoUrl from job state for download, with fallback to API endpoint
+  // Changed: Download uses the /content endpoint via our download API proxy
   const handleDownload = () => {
     if (!job) return
-    let url: string
-    if (job.videoUrl) {
-      url = `/api/videos/download?openaiVideoId=${job.openaiVideoId}&cosmicId=${job.cosmicId}&videoUrl=${encodeURIComponent(job.videoUrl)}`
-    } else {
-      url = `/api/videos/download?openaiVideoId=${job.openaiVideoId}&cosmicId=${job.cosmicId}`
-    }
+    const url = `/api/videos/download?openaiVideoId=${job.openaiVideoId}&cosmicId=${job.cosmicId}`
     const a = document.createElement('a')
     a.href = url
     a.download = `sora-video-${job.openaiVideoId}.mp4`
@@ -327,7 +296,7 @@ export default function GeneratorPanel() {
               </svg>
               {phase === 'submitting'
                 ? 'Submitting…'
-                : 'Generating… (this may take a few minutes)'}
+                : `Generating… ${job?.progress ? `(${job.progress}%)` : '(this may take several minutes)'}`}
             </>
           ) : (
             <>
@@ -353,8 +322,8 @@ export default function GeneratorPanel() {
             <div className="flex-1 min-w-0">
               <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">
                 {phase === 'completed'
-                  ? '✅ Generation complete'
-                  : '⏳ Rendering… (polls every 10s)'}
+                  ? '✅ Generation complete — ready to download'
+                  : '⏳ Rendering… (polls every 15s)'}
               </p>
               <p className="text-gray-300 text-sm line-clamp-2">
                 {job.prompt}
@@ -365,20 +334,6 @@ export default function GeneratorPanel() {
 
           {phase === 'polling' && (
             <ProgressBar progress={job.progress} status={job.status} />
-          )}
-
-          {/* Show video preview when completed and videoUrl is available */}
-          {phase === 'completed' && job.videoUrl && (
-            <div className="rounded-lg overflow-hidden bg-black">
-              <video
-                src={job.videoUrl}
-                controls
-                autoPlay
-                muted
-                loop
-                className="w-full max-h-[400px] object-contain"
-              />
-            </div>
           )}
 
           {phase === 'completed' && (
