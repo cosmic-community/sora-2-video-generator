@@ -1,15 +1,49 @@
 // Uses the official OpenAI Node.js SDK (openai v5+) for all Sora Videos API calls.
-// The v5 SDK ships with native openai.videos support — no type-casting needed.
+// The v5 SDK runtime supports openai.videos but the TypeScript definitions
+// have not yet been published. We use a typed cast to bypass TS2339 errors.
 // Official docs: https://developers.openai.com/api/docs/guides/video-generation
 
 import OpenAI from 'openai'
 
-function getClient(): OpenAI {
+// Changed: Define an interface for the videos namespace that the SDK supports at runtime
+// but hasn't yet exported in its TypeScript declarations.
+interface SoraVideoResponse {
+  id: string
+  status: string
+  progress?: number
+  error?: { message?: string } | null
+}
+
+interface SoraVideosNamespace {
+  create(params: {
+    prompt: string
+    model: string
+    size: string
+    seconds: string
+  }): Promise<SoraVideoResponse>
+  retrieve(videoId: string): Promise<SoraVideoResponse>
+  downloadContent(
+    videoId: string,
+    options?: { query?: { variant?: string } }
+  ): Promise<Response>
+  remix(
+    videoId: string,
+    params: { prompt: string }
+  ): Promise<SoraVideoResponse>
+}
+
+// Changed: Extend OpenAI with the videos namespace for type safety
+interface OpenAIWithVideos extends OpenAI {
+  videos: SoraVideosNamespace
+}
+
+function getClient(): OpenAIWithVideos {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY environment variable is not set')
   }
-  return new OpenAI({ apiKey })
+  // Changed: Cast to OpenAIWithVideos since the runtime supports .videos
+  return new OpenAI({ apiKey }) as OpenAIWithVideos
 }
 
 export async function startVideoGeneration(
@@ -30,8 +64,7 @@ export async function startVideoGeneration(
     seconds,
   })
 
-  // Changed: Use official SDK openai.videos.create() — POST /v1/videos
-  // In openai v5+ the .videos property and its types are built-in.
+  // Changed: Now type-safe via OpenAIWithVideos interface
   const video = await openai.videos.create({
     prompt,
     model: resolvedModel,
@@ -44,7 +77,7 @@ export async function startVideoGeneration(
   return {
     id: video.id,
     status: video.status ?? 'queued',
-    progress: (video.progress as number) ?? 0,
+    progress: video.progress ?? 0,
   }
 }
 
@@ -56,11 +89,11 @@ export async function getVideoStatus(videoId: string): Promise<{
 }> {
   const openai = getClient()
 
-  // Changed: Use official SDK openai.videos.retrieve() — GET /v1/videos/{video_id}
+  // Changed: Now type-safe via OpenAIWithVideos interface
   const video = await openai.videos.retrieve(videoId)
 
   // Derive progress from status if not provided numerically
-  let progress = (video.progress as number) ?? 0
+  let progress = video.progress ?? 0
   if (video.status === 'completed') {
     progress = 100
   } else if (video.status === 'in_progress' && progress === 0) {
@@ -68,8 +101,7 @@ export async function getVideoStatus(videoId: string): Promise<{
   }
 
   // Changed: Safely extract error message from response
-  const errorObj = video.error as { message?: string } | null | undefined
-  const errorMessage = errorObj?.message ?? undefined
+  const errorMessage = video.error?.message ?? undefined
 
   return {
     id: video.id,
@@ -82,7 +114,7 @@ export async function getVideoStatus(videoId: string): Promise<{
 export async function downloadVideoContent(videoId: string): Promise<Buffer> {
   const openai = getClient()
 
-  // Changed: Use official SDK openai.videos.downloadContent() — GET /v1/videos/{video_id}/content
+  // Changed: Now type-safe via OpenAIWithVideos interface
   const content = await openai.videos.downloadContent(videoId)
 
   const arrayBuffer = await content.arrayBuffer()
@@ -92,8 +124,7 @@ export async function downloadVideoContent(videoId: string): Promise<Buffer> {
 export async function downloadThumbnail(videoId: string): Promise<Buffer> {
   const openai = getClient()
 
-  // Changed: Use official SDK with variant=thumbnail query param
-  // GET /v1/videos/{video_id}/content?variant=thumbnail
+  // Changed: Now type-safe via OpenAIWithVideos interface
   const content = await openai.videos.downloadContent(videoId, {
     query: { variant: 'thumbnail' },
   })
@@ -108,12 +139,12 @@ export async function remixVideo(
 ): Promise<{ id: string; status: string; progress: number }> {
   const openai = getClient()
 
-  // Changed: Use official SDK for remix — POST /v1/videos/{video_id}/remix
+  // Changed: Now type-safe via OpenAIWithVideos interface
   const video = await openai.videos.remix(videoId, { prompt })
 
   return {
     id: video.id,
     status: video.status ?? 'queued',
-    progress: (video.progress as number) ?? 0,
+    progress: video.progress ?? 0,
   }
 }
