@@ -1,7 +1,7 @@
 export type VideoStatus = 'queued' | 'in_progress' | 'completed' | 'failed'
-// Changed: Model type updated — API accepts "sora" as the canonical model name
-export type VideoModel = 'sora' | 'sora-2'
-export type VideoSize = '1280x720' | '480x480' | '1920x1080'
+// Changed: Correct model names per OpenAI Sora API docs
+export type VideoModel = 'sora-2' | 'sora-2-pro'
+export type VideoSize = '1280x720' | '1920x1080' | '480x480'
 export type VideoSeconds = '5' | '10' | '15' | '20'
 
 export interface SoraVideoMetadata {
@@ -50,17 +50,15 @@ export interface VideoListResponse {
   total: number
 }
 
-// OpenAI Video API shape (simplified)
-export interface OpenAIVideo {
+// OpenAI Sora Videos API response shape per official docs
+export interface OpenAIVideoResponse {
   id: string
   object: string
   created_at: number
   status: VideoStatus
   model: string
   progress?: number
-  n_seconds?: number
-  width?: number
-  height?: number
-  data?: Array<{ url?: string }>
+  seconds?: string
+  size?: string
   error?: { message: string }
 }

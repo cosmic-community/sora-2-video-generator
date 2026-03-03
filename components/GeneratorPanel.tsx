@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import type { VideoSize, VideoSeconds } from '@/types'
+import type { VideoSize, VideoSeconds, VideoModel } from '@/types'
 import ProgressBar from '@/components/ProgressBar'
 
 type Phase = 'idle' | 'submitting' | 'polling' | 'completed' | 'failed'
@@ -17,21 +17,20 @@ interface JobState {
 const EXAMPLE_PROMPTS = [
   'Wide shot of a child flying a red kite in a grassy park, golden hour sunlight, camera slowly pans upward.',
   'Close-up of a steaming coffee cup on a wooden table, morning light through window blinds, soft depth of field.',
-  'A timelapse of storm clouds building over a mountain range, lightning flashes in the distance, dramatic music.',
+  'A timelapse of storm clouds building over a mountain range, lightning flashes in the distance.',
   'Aerial drone shot of a turquoise ocean bay with white sandy beaches, tropical birds in foreground.',
 ]
 
-// Changed: Sora UI labels mapped to valid model strings
-// The public OpenAI Sora API currently accepts "sora" as the model identifier
-const MODEL_OPTIONS = [
-  { label: 'sora (fast)', value: 'sora' },
-  { label: 'sora (quality)', value: 'sora' },
-] as const
+// Changed: Use correct Sora model names per OpenAI docs (sora-2 and sora-2-pro)
+const MODEL_OPTIONS: { label: string; value: VideoModel }[] = [
+  { label: 'sora-2 (fast)', value: 'sora-2' },
+  { label: 'sora-2-pro (quality)', value: 'sora-2-pro' },
+]
 
 export default function GeneratorPanel() {
   const [prompt, setPrompt] = useState('')
-  // Changed: Use 'sora' as the actual model value sent to the API
-  const [model] = useState<string>('sora')
+  // Changed: Default to 'sora-2' which is the correct API model name
+  const [model, setModel] = useState<VideoModel>('sora-2')
   const [size, setSize] = useState<VideoSize>('1280x720')
   const [seconds, setSeconds] = useState<VideoSeconds>('5')
   const [phase, setPhase] = useState<Phase>('idle')
@@ -39,7 +38,7 @@ export default function GeneratorPanel() {
   const [error, setError] = useState<string | null>(null)
 
   const pollStatus = useCallback(
-    async (cosmicId: string, openaiVideoId: string) => {
+    (cosmicId: string, openaiVideoId: string) => {
       const interval = setInterval(async () => {
         try {
           const res = await fetch(
@@ -61,9 +60,7 @@ export default function GeneratorPanel() {
           if (!data) return
 
           setJob((prev) =>
-            prev
-              ? { ...prev, status: data.status, progress: data.progress }
-              : prev
+            prev ? { ...prev, status: data.status, progress: data.progress } : prev
           )
 
           if (data.status === 'completed') {
@@ -75,12 +72,12 @@ export default function GeneratorPanel() {
             setError(data.error ?? 'Video generation failed')
           }
         } catch {
-          // keep polling
+          // keep polling on transient errors
         }
-      }, 8000)
+      }, 10000) // Poll every 10 seconds per OpenAI docs recommendation
 
-      // Cleanup after 20 minutes max
-      setTimeout(() => clearInterval(interval), 20 * 60 * 1000)
+      // Cleanup after 30 minutes max
+      setTimeout(() => clearInterval(interval), 30 * 60 * 1000)
     },
     []
   )
@@ -111,7 +108,7 @@ export default function GeneratorPanel() {
 
       if (json.error || !json.data) {
         setPhase('failed')
-        setError(json.error ?? 'Unknown error')
+        setError(json.error ?? 'Unknown error starting generation')
         return
       }
 
@@ -125,7 +122,7 @@ export default function GeneratorPanel() {
     }
   }
 
-  const handleDownload = async () => {
+  const handleDownload = () => {
     if (!job) return
     const url = `/api/videos/download?openaiVideoId=${job.openaiVideoId}&cosmicId=${job.cosmicId}`
     const a = document.createElement('a')
@@ -196,7 +193,7 @@ export default function GeneratorPanel() {
           <span className="text-xs text-gray-600">{prompt.length}/2000</span>
         </div>
 
-        {/* Settings row */}
+        {/* Settings grid */}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Resolution</label>
@@ -207,8 +204,8 @@ export default function GeneratorPanel() {
               className="input-field text-sm"
             >
               <option value="1280x720">1280×720 (720p)</option>
-              <option value="480x480">480×480 (Square)</option>
               <option value="1920x1080">1920×1080 (1080p)</option>
+              <option value="480x480">480×480 (Square)</option>
             </select>
           </div>
           <div>
@@ -227,12 +224,31 @@ export default function GeneratorPanel() {
           </div>
         </div>
 
-        {/* Changed: Show model info as static badge instead of select, since API only accepts "sora" */}
-        <div className="flex items-center gap-2 text-xs text-gray-500">
-          <span className="bg-surface-elevated border border-surface-border rounded px-2 py-1 text-brand font-medium">
-            Model: sora
-          </span>
-          <span>Powered by OpenAI Sora video generation</span>
+        {/* Model selection */}
+        <div>
+          <label className="text-xs text-gray-500 mb-1 block">Model</label>
+          <div className="flex gap-2">
+            {MODEL_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setModel(opt.value)}
+                disabled={isGenerating}
+                className={`flex-1 text-xs px-3 py-2 rounded-lg border transition-colors duration-150 disabled:opacity-40 ${
+                  model === opt.value
+                    ? 'bg-brand/20 border-brand text-brand'
+                    : 'bg-surface-elevated border-surface-border text-gray-400 hover:text-white hover:border-gray-500'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-gray-600 mt-1">
+            {model === 'sora-2'
+              ? 'Fast generation, great for iteration and social content.'
+              : 'Higher quality, best for production and marketing assets.'}
+          </p>
         </div>
 
         <button
@@ -242,15 +258,27 @@ export default function GeneratorPanel() {
         >
           {isGenerating ? (
             <>
-              <svg className="animate-spin-slow w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <svg
+                className="animate-spin-slow w-4 h-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
                 <circle cx="12" cy="12" r="10" strokeOpacity={0.25} />
                 <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round" />
               </svg>
-              {phase === 'submitting' ? 'Submitting…' : 'Generating…'}
+              {phase === 'submitting' ? 'Submitting…' : 'Generating… (this may take a few minutes)'}
             </>
           ) : (
             <>
-              <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4" stroke="currentColor" strokeWidth={2}>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                className="w-4 h-4"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
                 <polygon points="5,3 19,12 5,21" fill="currentColor" />
               </svg>
               Generate Video
@@ -265,7 +293,7 @@ export default function GeneratorPanel() {
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
               <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">
-                {phase === 'completed' ? '✅ Generation complete' : '⏳ Rendering…'}
+                {phase === 'completed' ? '✅ Generation complete' : '⏳ Rendering… (polls every 10s)'}
               </p>
               <p className="text-gray-300 text-sm line-clamp-2">{job.prompt}</p>
             </div>
@@ -278,16 +306,34 @@ export default function GeneratorPanel() {
 
           {phase === 'completed' && (
             <div className="flex gap-3">
-              <button onClick={handleDownload} className="btn-primary flex items-center gap-2 flex-1 justify-center">
-                <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4" stroke="currentColor" strokeWidth={2}>
+              <button
+                onClick={handleDownload}
+                className="btn-primary flex items-center gap-2 flex-1 justify-center"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  className="w-4 h-4"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                   <polyline points="7 10 12 15 17 10" />
                   <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
                 Download MP4
               </button>
-              <button onClick={handleShare} className="btn-secondary flex items-center gap-2 flex-1 justify-center">
-                <svg viewBox="0 0 24 24" fill="none" className="w-4 h-4" stroke="currentColor" strokeWidth={2}>
+              <button
+                onClick={handleShare}
+                className="btn-secondary flex items-center gap-2 flex-1 justify-center"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  className="w-4 h-4"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
                   <circle cx="18" cy="5" r="3" />
                   <circle cx="6" cy="12" r="3" />
                   <circle cx="18" cy="19" r="3" />
@@ -306,7 +352,13 @@ export default function GeneratorPanel() {
 
       {error && (
         <div className="bg-red-950/40 border border-red-800/50 rounded-xl p-4 text-red-300 text-sm flex items-start gap-3">
-          <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5 flex-shrink-0 text-red-400 mt-0.5" stroke="currentColor" strokeWidth={2}>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            className="w-5 h-5 flex-shrink-0 text-red-400 mt-0.5"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
             <circle cx="12" cy="12" r="10" />
             <line x1="15" y1="9" x2="9" y2="15" />
             <line x1="9" y1="9" x2="15" y2="15" />
@@ -314,7 +366,10 @@ export default function GeneratorPanel() {
           <div>
             <p className="font-medium text-red-300 mb-0.5">Generation failed</p>
             <p className="text-red-400">{error}</p>
-            <button onClick={handleReset} className="mt-2 text-xs text-red-300 underline hover:no-underline">
+            <button
+              onClick={handleReset}
+              className="mt-2 text-xs text-red-300 underline hover:no-underline"
+            >
               Try again
             </button>
           </div>
@@ -323,7 +378,8 @@ export default function GeneratorPanel() {
 
       {/* Content restrictions note */}
       <p className="text-gray-600 text-xs">
-        ⚠️ Content must be suitable for audiences under 18. No copyrighted characters, real people, or music.
+        ⚠️ Content must be suitable for audiences under 18. No copyrighted characters, real
+        people, or music.
       </p>
     </div>
   )
@@ -338,7 +394,9 @@ function StatusBadge({ status }: { status: string }) {
   }
   const color = colors[status] ?? 'bg-gray-800 text-gray-400 border-gray-700'
   return (
-    <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${color} capitalize flex-shrink-0`}>
+    <span
+      className={`text-xs font-medium px-2 py-0.5 rounded-full border ${color} capitalize flex-shrink-0`}
+    >
       {status.replace('_', ' ')}
     </span>
   )
