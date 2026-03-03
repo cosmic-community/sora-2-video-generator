@@ -1,15 +1,20 @@
 // Direct REST API calls to the OpenAI Sora Videos API.
 // The openai Node.js SDK does not yet expose a .videos namespace at runtime,
 // so we call the HTTP endpoints directly.
-// Docs: https://platform.openai.com/docs/api-reference/videos
+// Official docs: https://developers.openai.com/api/docs/guides/video-generation
 
 const OPENAI_API_BASE = 'https://api.openai.com/v1'
 
 // Changed: Response shape from the Sora Videos API
 interface SoraVideoResponse {
   id: string
+  object: string
+  created_at: number
   status: string
-  progress?: number
+  model: string
+  progress: number
+  seconds: string
+  size: string
   error?: { message?: string } | null
 }
 
@@ -21,13 +26,12 @@ function getApiKey(): string {
   return apiKey
 }
 
-// Changed: Generic helper for authenticated OpenAI API requests
-async function openaiRequest<T>(
+// Changed: Helper for JSON-based OpenAI API requests (used for GET, remix, etc.)
+async function openaiJsonRequest<T>(
   path: string,
   options: {
     method?: string
     body?: Record<string, unknown>
-    rawResponse?: boolean
   } = {}
 ): Promise<T> {
   const apiKey = getApiKey()
@@ -35,7 +39,6 @@ async function openaiRequest<T>(
 
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${apiKey}`,
-    'Content-Type': 'application/json',
   }
 
   const fetchOptions: RequestInit = {
@@ -44,6 +47,7 @@ async function openaiRequest<T>(
   }
 
   if (body) {
+    headers['Content-Type'] = 'application/json'
     fetchOptions.body = JSON.stringify(body)
   }
 
@@ -77,28 +81,50 @@ export async function startVideoGeneration(
   // Resolve model alias: 'sora' → 'sora-2'
   const resolvedModel = model === 'sora' ? 'sora-2' : model
 
-  console.log('[Sora] Creating video via REST API', {
+  console.log('[Sora] Creating video via REST API (multipart/form-data)', {
     prompt: prompt.slice(0, 60),
     model: resolvedModel,
     size,
     seconds,
   })
 
-  // Changed: Direct POST to the Sora generations endpoint
-  const video = await openaiRequest<SoraVideoResponse>('/videos/generations', {
+  const apiKey = getApiKey()
+
+  // Changed: Use multipart/form-data as per official docs curl example
+  // POST https://api.openai.com/v1/videos with -F fields
+  const formData = new FormData()
+  formData.append('prompt', prompt)
+  formData.append('model', resolvedModel)
+  formData.append('size', size)
+  formData.append('seconds', seconds)
+
+  const url = `${OPENAI_API_BASE}/videos`
+  console.log(`[Sora] POST ${url}`)
+
+  const res = await fetch(url, {
     method: 'POST',
-    body: {
-      model: resolvedModel,
-      input: [
-        {
-          type: 'text',
-          text: prompt,
-        },
-      ],
-      size,
-      duration: parseInt(seconds, 10),
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      // Changed: Do NOT set Content-Type manually — fetch sets the correct
+      // multipart/form-data boundary automatically when body is FormData
     },
+    body: formData,
   })
+
+  if (!res.ok) {
+    let errorMessage = `OpenAI API error: ${res.status} ${res.statusText}`
+    try {
+      const errorBody = (await res.json()) as { error?: { message?: string } }
+      if (errorBody?.error?.message) {
+        errorMessage = errorBody.error.message
+      }
+    } catch {
+      // Could not parse error body
+    }
+    throw new Error(errorMessage)
+  }
+
+  const video = (await res.json()) as SoraVideoResponse
 
   console.log('[Sora] Video created:', { id: video.id, status: video.status })
 
@@ -115,9 +141,9 @@ export async function getVideoStatus(videoId: string): Promise<{
   progress: number
   error?: string
 }> {
-  // Changed: Direct GET to retrieve video generation status
-  const video = await openaiRequest<SoraVideoResponse>(
-    `/videos/generations/${encodeURIComponent(videoId)}`
+  // Changed: Correct endpoint per docs: GET /v1/videos/{video_id}
+  const video = await openaiJsonRequest<SoraVideoResponse>(
+    `/videos/${encodeURIComponent(videoId)}`
   )
 
   // Derive progress from status if not provided numerically
@@ -141,14 +167,16 @@ export async function getVideoStatus(videoId: string): Promise<{
 export async function downloadVideoContent(videoId: string): Promise<Buffer> {
   const apiKey = getApiKey()
 
-  // Changed: Direct GET to download the generated video content
-  const url = `${OPENAI_API_BASE}/videos/generations/${encodeURIComponent(videoId)}/content`
+  // Changed: Correct endpoint per docs: GET /v1/videos/{video_id}/content
+  const url = `${OPENAI_API_BASE}/videos/${encodeURIComponent(videoId)}/content`
   console.log(`[Sora] GET ${url}`)
 
   const res = await fetch(url, {
     headers: {
       'Authorization': `Bearer ${apiKey}`,
     },
+    // Changed: Follow redirects for download URLs
+    redirect: 'follow',
   })
 
   if (!res.ok) {
@@ -171,14 +199,15 @@ export async function downloadVideoContent(videoId: string): Promise<Buffer> {
 export async function downloadThumbnail(videoId: string): Promise<Buffer> {
   const apiKey = getApiKey()
 
-  // Changed: Direct GET with variant=thumbnail query parameter
-  const url = `${OPENAI_API_BASE}/videos/generations/${encodeURIComponent(videoId)}/content?variant=thumbnail`
+  // Changed: Correct endpoint per docs: GET /v1/videos/{video_id}/content?variant=thumbnail
+  const url = `${OPENAI_API_BASE}/videos/${encodeURIComponent(videoId)}/content?variant=thumbnail`
   console.log(`[Sora] GET ${url} (thumbnail)`)
 
   const res = await fetch(url, {
     headers: {
       'Authorization': `Bearer ${apiKey}`,
     },
+    redirect: 'follow',
   })
 
   if (!res.ok) {
@@ -202,31 +231,22 @@ export async function remixVideo(
   videoId: string,
   prompt: string
 ): Promise<{ id: string; status: string; progress: number }> {
-  // Changed: Remix is a new generation that references the original video
-  // Using the standard generations endpoint with the original video as input
+  // Changed: Correct remix endpoint per docs:
+  // POST /v1/videos/<previous_video_id>/remix with JSON body { "prompt": "..." }
   console.log('[Sora] Remixing video via REST API', {
     originalVideoId: videoId,
     prompt: prompt.slice(0, 60),
   })
 
-  const video = await openaiRequest<SoraVideoResponse>('/videos/generations', {
-    method: 'POST',
-    body: {
-      model: 'sora-2',
-      input: [
-        {
-          type: 'text',
-          text: prompt,
-        },
-        {
-          type: 'generation',
-          id: videoId,
-        },
-      ],
-      size: '1280x720',
-      duration: 8,
-    },
-  })
+  const video = await openaiJsonRequest<SoraVideoResponse>(
+    `/videos/${encodeURIComponent(videoId)}/remix`,
+    {
+      method: 'POST',
+      body: {
+        prompt,
+      },
+    }
+  )
 
   return {
     id: video.id,
