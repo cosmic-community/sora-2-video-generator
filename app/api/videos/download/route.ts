@@ -43,9 +43,13 @@ export async function GET(req: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('Download error:', error)
-    const message =
-      error instanceof Error ? error.message : 'Failed to download'
+    // Changed: Log full error for debugging
+    const message = error instanceof Error ? error.message : 'Failed to download'
+    const stack = error instanceof Error ? error.stack : undefined
+    console.error('[Download API] Error:', message)
+    if (stack) {
+      console.error('[Download API] Stack:', stack)
+    }
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

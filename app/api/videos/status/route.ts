@@ -29,9 +29,13 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ data: status })
   } catch (error) {
-    console.error('Status error:', error)
-    const message =
-      error instanceof Error ? error.message : 'Failed to get status'
+    // Changed: Log full error for debugging
+    const message = error instanceof Error ? error.message : 'Failed to get status'
+    const stack = error instanceof Error ? error.stack : undefined
+    console.error('[Status API] Error:', message)
+    if (stack) {
+      console.error('[Status API] Stack:', stack)
+    }
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

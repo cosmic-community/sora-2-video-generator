@@ -30,7 +30,6 @@ export default function GeneratorPanel() {
   const [prompt, setPrompt] = useState('')
   const [model, setModel] = useState<VideoModel>('sora-2')
   const [size, setSize] = useState<VideoSize>('1280x720')
-  // Changed: Default to '4' — the shortest valid Sora API duration
   const [seconds, setSeconds] = useState<VideoSeconds>('4')
   const [phase, setPhase] = useState<Phase>('idle')
   const [job, setJob] = useState<JobState | null>(null)
@@ -107,6 +106,7 @@ export default function GeneratorPanel() {
 
       if (json.error || !json.data) {
         setPhase('failed')
+        // Changed: Show the actual API error message from the server
         setError(json.error ?? 'Unknown error starting generation')
         return
       }
@@ -115,9 +115,11 @@ export default function GeneratorPanel() {
       setJob({ cosmicId, openaiVideoId, status, progress, prompt: prompt.trim() })
       setPhase('polling')
       pollStatus(cosmicId, openaiVideoId)
-    } catch {
+    } catch (err) {
       setPhase('failed')
-      setError('Network error — please try again')
+      // Changed: Include actual network error details
+      const networkMsg = err instanceof Error ? err.message : 'Unknown network error'
+      setError(`Network error: ${networkMsg}`)
     }
   }
 
@@ -209,7 +211,6 @@ export default function GeneratorPanel() {
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Duration</label>
-            {/* Changed: Only valid Sora API values are 4, 8, and 12 seconds */}
             <select
               value={seconds}
               onChange={(e) => setSeconds(e.target.value as VideoSeconds)}
@@ -349,28 +350,45 @@ export default function GeneratorPanel() {
         </div>
       )}
 
+      {/* Changed: Enhanced error display with copy-paste support */}
       {error && (
-        <div className="bg-red-950/40 border border-red-800/50 rounded-xl p-4 text-red-300 text-sm flex items-start gap-3">
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            className="w-5 h-5 flex-shrink-0 text-red-400 mt-0.5"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <circle cx="12" cy="12" r="10" />
-            <line x1="15" y1="9" x2="9" y2="15" />
-            <line x1="9" y1="9" x2="15" y2="15" />
-          </svg>
-          <div>
-            <p className="font-medium text-red-300 mb-0.5">Generation failed</p>
-            <p className="text-red-400">{error}</p>
-            <button
-              onClick={handleReset}
-              className="mt-2 text-xs text-red-300 underline hover:no-underline"
+        <div className="bg-red-950/40 border border-red-800/50 rounded-xl p-4 text-red-300 text-sm space-y-3">
+          <div className="flex items-start gap-3">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              className="w-5 h-5 flex-shrink-0 text-red-400 mt-0.5"
+              stroke="currentColor"
+              strokeWidth={2}
             >
-              Try again
-            </button>
+              <circle cx="12" cy="12" r="10" />
+              <line x1="15" y1="9" x2="9" y2="15" />
+              <line x1="9" y1="9" x2="15" y2="15" />
+            </svg>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-red-300 mb-1">Generation failed</p>
+              <pre className="text-red-400 text-xs whitespace-pre-wrap break-all bg-red-950/50 rounded-lg p-3 border border-red-900/50 font-mono select-all">
+                {error}
+              </pre>
+              <div className="flex gap-3 mt-2">
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(error).catch(() => {
+                      // fallback: select the pre element
+                    })
+                  }}
+                  className="text-xs text-red-300 underline hover:no-underline"
+                >
+                  Copy error
+                </button>
+                <button
+                  onClick={handleReset}
+                  className="text-xs text-red-300 underline hover:no-underline"
+                >
+                  Try again
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

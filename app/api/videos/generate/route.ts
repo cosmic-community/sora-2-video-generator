@@ -3,10 +3,22 @@ import { startVideoGeneration } from '@/lib/openai'
 import { createVideoRecord } from '@/lib/cosmic'
 import type { GenerateVideoRequest } from '@/types'
 
+// Changed: Valid values for the Sora API seconds parameter
+const VALID_SECONDS = ['4', '8', '12']
+const VALID_MODELS = ['sora-2', 'sora-2-pro']
+
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as GenerateVideoRequest
     const { prompt, model, size, seconds } = body
+
+    // Changed: Log incoming request for debugging
+    console.log('[Generate API] Received request:', {
+      prompt: prompt ? prompt.slice(0, 60) + '...' : '(empty)',
+      model,
+      size,
+      seconds,
+    })
 
     if (!prompt?.trim()) {
       return NextResponse.json({ error: 'Prompt is required' }, { status: 400 })
@@ -18,18 +30,39 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Changed: Validate OPENAI_API_KEY is set before attempting generation
+    // Validate OPENAI_API_KEY is set before attempting generation
     if (!process.env.OPENAI_API_KEY) {
+      console.error('[Generate API] OPENAI_API_KEY is missing from environment variables')
       return NextResponse.json(
-        { error: 'OPENAI_API_KEY is not configured. Please add it to your environment variables.' },
+        { error: 'OPENAI_API_KEY is not configured. Please add it to your environment variables at https://platform.openai.com/api-keys' },
         { status: 500 }
       )
     }
 
     const resolvedModel = model ?? 'sora-2'
     const resolvedSize = size ?? '1280x720'
-    // Changed: Default to '4' — the shortest valid Sora API duration
     const resolvedSeconds = seconds ?? '4'
+
+    // Changed: Validate seconds is one of the allowed string values
+    if (!VALID_SECONDS.includes(resolvedSeconds)) {
+      const msg = `Invalid seconds value "${resolvedSeconds}". Must be one of: ${VALID_SECONDS.join(', ')}`
+      console.error(`[Generate API] ${msg}`)
+      return NextResponse.json({ error: msg }, { status: 400 })
+    }
+
+    // Changed: Validate model
+    if (!VALID_MODELS.includes(resolvedModel)) {
+      const msg = `Invalid model "${resolvedModel}". Must be one of: ${VALID_MODELS.join(', ')}`
+      console.error(`[Generate API] ${msg}`)
+      return NextResponse.json({ error: msg }, { status: 400 })
+    }
+
+    console.log('[Generate API] Starting video generation:', {
+      prompt: prompt.trim().slice(0, 60),
+      model: resolvedModel,
+      size: resolvedSize,
+      seconds: resolvedSeconds,
+    })
 
     const openaiVideo = await startVideoGeneration(
       prompt.trim(),
@@ -38,6 +71,11 @@ export async function POST(req: NextRequest) {
       resolvedSeconds
     )
 
+    console.log('[Generate API] OpenAI video created, saving to Cosmic:', {
+      openaiVideoId: openaiVideo.id,
+      status: openaiVideo.status,
+    })
+
     const cosmicVideo = await createVideoRecord(
       prompt.trim(),
       openaiVideo.id,
@@ -45,6 +83,8 @@ export async function POST(req: NextRequest) {
       resolvedSize,
       resolvedSeconds
     )
+
+    console.log('[Generate API] Cosmic record created:', { cosmicId: cosmicVideo.id })
 
     return NextResponse.json({
       data: {
@@ -55,9 +95,13 @@ export async function POST(req: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('Generate error:', error)
-    const message =
-      error instanceof Error ? error.message : 'Failed to start generation'
+    // Changed: Log the full error with stack trace for easy debugging
+    const message = error instanceof Error ? error.message : 'Failed to start generation'
+    const stack = error instanceof Error ? error.stack : undefined
+    console.error('[Generate API] Error:', message)
+    if (stack) {
+      console.error('[Generate API] Stack:', stack)
+    }
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }
